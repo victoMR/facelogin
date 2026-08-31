@@ -3,14 +3,28 @@
   "private": true,
   "version": "0.1.0",
   "description": "Autenticación únicamente por reconocimiento facial con plantillas cifradas y LSH",
-  "workspaces": ["backend", "frontend"],
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
   "scripts": {
     "dev": "concurrently -n api,web -c cyan,magenta \"npm run dev -w backend\" \"npm run dev -w frontend\"",
+    "dev:https": "node scripts/ensure-dev-certs.mjs && concurrently -n api,web -c cyan,magenta \"npm run dev -w backend\" \"FACELOGIN_HTTPS=1 npm run dev -w frontend\"",
+    "dev:cam": "bash scripts/open-chrome-https.sh http://localhost:5173",
+    "stop": "bash scripts/stop-dev.sh",
+    "reset": "bash scripts/reset-dev.sh",
     "build": "npm run build -w backend && npm run build -w frontend",
-    "start": "npm run start -w backend"
+    "start": "npm run start -w backend",
+    "test": "npm test -w backend && npm test -w frontend",
+    "test:perf": "node scripts/perf/run.mjs",
+    "eval:threshold": "tsx scripts/eval/run.mjs",
+    "sync:assets": "node scripts/sync-assets.mjs"
   },
   "devDependencies": {
-    "concurrently": "^9.2.1"
+    "@tensorflow/tfjs": "^4.22.0",
+    "concurrently": "^9.2.1",
+    "jpeg-js": "^0.4.4",
+    "playwright": "^1.62.1"
   },
   "engines": {
     "node": ">=20"

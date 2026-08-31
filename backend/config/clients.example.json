@@ -1,0 +1,15 @@
+[
+  {
+    "client_id": "demo-web",
+    "name": "Panel de demostración",
+    "redirect_uris": ["http://localhost:4000/callback"],
+    "client_secret": "cambia-esto-por-32-bytes-aleatorios",
+    "scopes": ["openid", "profile"]
+  },
+  {
+    "client_id": "demo-spa",
+    "name": "SPA de demostración",
+    "redirect_uris": ["http://localhost:4001/callback"],
+    "scopes": ["openid"]
+  }
+]

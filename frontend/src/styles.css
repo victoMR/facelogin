@@ -1,12 +1,70 @@
+/* ---------------------------------------------------------------------------
+   facelogin — hoja de estilo única.
+
+   Tres reglas de fondo:
+   1. Una sola cosa por pantalla. Cada vista ocupa el viewport entero y tiene
+      un único bloque de contenido centrado, con un ancho de línea legible.
+   2. Sobre el vídeo, el texto siempre es blanco sobre una capa oscura: el
+      recorte del óvalo y el degradado inferior garantizan el contraste aunque
+      detrás haya una pared blanca.
+   3. Nada se mueve sin motivo, y todo lo que se mueve desaparece bajo
+      `prefers-reduced-motion: reduce`.
+--------------------------------------------------------------------------- */
+
 :root {
-  color-scheme: dark;
-  --ink: #10140f;
-  --paper: #efe6cf;
-  --copper: #d08a3c;
-  --moss: #7f9a6d;
-  --line: rgba(239, 230, 207, 0.16);
-  --danger: #d4654a;
-  font-family: "Iowan Old Style", "Palatino Linotype", Palatino, "Times New Roman", serif;
+  color-scheme: light dark;
+
+  --bg: #f5f5f7;
+  --surface: #ffffff;
+  --label: #1d1d1f;
+  --secondary: #6e6e73;
+  --tertiary: #86868b;
+  --separator: rgba(60, 60, 67, 0.16);
+  --fill: rgba(120, 120, 128, 0.12);
+  --tint: #0071e3;
+  --on-tint: #ffffff;
+  --ok: #34c759;
+  --warn: #ff9f0a;
+  --danger: #d70015;
+  --focus: 0 0 0 4px rgba(0, 113, 227, 0.35);
+
+  /* Sobre el vídeo el tema no cambia: la escena siempre es oscura. */
+  --ring-idle: rgba(255, 255, 255, 0.3);
+  --ring-shot: #30d158;
+  /* El relleno del tramo en curso: el mismo verde del disparo, atenuado, porque
+     es lo que está a punto de pasar. Un color propio lo convertiría en un tercer
+     estado que habría que aprender. */
+  --ring-hold: rgba(48, 209, 88, 0.85);
+
+  /* Ámbar de aviso. Lo usan la traza del anillo cuando la imagen no acompaña y
+     el titular cuando el consejo sustituye a la instrucción: es el mismo aviso
+     dicho de dos maneras, no dos avisos. */
+  --coach-warn: #ffd60a;
+
+  /* Curva única de la interfaz. Estaba repetida literal en seis sitios. */
+  --ease: cubic-bezier(0.32, 0.72, 0, 1);
+
+  font-family:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+  font-size: 17px;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #000000;
+    --surface: #1c1c1e;
+    --label: #f5f5f7;
+    --secondary: #a1a1a6;
+    --tertiary: #8e8e93;
+    --separator: rgba(84, 84, 88, 0.6);
+    --fill: rgba(120, 120, 128, 0.24);
+    --tint: #0a84ff;
+    --danger: #ff453a;
+    --focus: 0 0 0 4px rgba(10, 132, 255, 0.45);
+  }
 }
 
 * {
@@ -16,250 +74,1020 @@
 html,
 body,
 #root {
-  min-height: 100%;
+  height: 100%;
   margin: 0;
-  background:
-    radial-gradient(circle at 80% 0%, rgba(208, 138, 60, 0.16), transparent 38%),
-    linear-gradient(180deg, #171c16 0%, var(--ink) 42%);
-  color: var(--paper);
-}
-
-body {
-  letter-spacing: 0.01em;
+  background: var(--bg);
+  color: var(--label);
 }
 
 button,
 input {
   font: inherit;
+  color: inherit;
 }
 
 .app {
-  width: min(1080px, calc(100% - 32px));
-  margin: 0 auto;
-  padding: 28px 0 64px;
-}
-
-.topbar {
+  min-height: 100%;
   display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  margin-bottom: 28px;
+  flex-direction: column;
 }
 
-.brand {
-  font-size: 1.4rem;
-  letter-spacing: 0.08em;
-  text-transform: lowercase;
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
-.brand span {
-  color: var(--copper);
+/* --- Pantallas de contenido ------------------------------------------------ */
+
+.screen {
+  position: relative;
+  flex: 1;
+  display: flex;
+  min-height: 100dvh;
+  padding: max(72px, env(safe-area-inset-top)) 24px max(40px, env(safe-area-inset-bottom));
+  animation: screen-in 420ms cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+
+.screen--center {
+  align-items: center;
+  justify-content: center;
+}
+
+.screen__inner {
+  width: 100%;
+  max-width: 30rem;
+}
+
+.screen__back {
+  position: absolute;
+  top: max(20px, env(safe-area-inset-top));
+  left: 16px;
+}
+
+@keyframes screen-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
 }
 
 .eyebrow {
-  margin: 0;
-  color: rgba(239, 230, 207, 0.62);
-  font-size: 0.82rem;
-  letter-spacing: 0.16em;
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  font-family: "Avenir Next", "Segoe UI", sans-serif;
+  color: var(--tertiary);
 }
 
-.hero,
-.panel {
-  border: 1px solid var(--line);
-  background: rgba(16, 20, 15, 0.72);
-  padding: 28px;
+.display {
+  margin: 0 0 14px;
+  font-size: clamp(34px, 8vw, 52px);
+  line-height: 1.05;
+  letter-spacing: -0.035em;
+  font-weight: 700;
+  text-wrap: balance;
 }
 
-.hero h1,
-.panel h1 {
-  margin: 10px 0 12px;
-  font-size: clamp(2.1rem, 5vw, 3.6rem);
-  line-height: 0.95;
-  font-weight: 500;
+.title {
+  margin: 0 0 8px;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
 }
 
-.lede {
-  max-width: 42rem;
-  color: rgba(239, 230, 207, 0.78);
-  font-size: 1.05rem;
+.body {
+  margin: 0 0 32px;
+  color: var(--secondary);
+  font-size: 17px;
+  max-width: 32ch;
+  text-wrap: pretty;
 }
 
-.actions {
+.stack {
   display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
-  margin-top: 24px;
+  flex-direction: column;
+  gap: 10px;
+  align-items: stretch;
 }
+
+/* --- Controles ------------------------------------------------------------- */
 
 .btn {
-  border: 1px solid var(--copper);
-  background: transparent;
-  color: var(--paper);
-  padding: 12px 18px;
+  appearance: none;
+  border: 0;
+  border-radius: 14px;
+  min-height: 52px;
+  padding: 0 22px;
+  background: var(--fill);
+  color: var(--label);
+  font-size: 17px;
+  font-weight: 500;
   cursor: pointer;
+  transition:
+    transform 160ms cubic-bezier(0.32, 0.72, 0, 1),
+    opacity 160ms ease,
+    background-color 160ms ease;
 }
 
-.btn.primary {
-  background: var(--copper);
-  color: #1a140c;
+.btn:hover {
+  opacity: 0.88;
+}
+
+.btn:active {
+  transform: scale(0.985);
+}
+
+.btn--primary {
+  background: var(--tint);
+  color: var(--on-tint);
+  font-weight: 600;
+}
+
+.btn--quiet {
+  background: transparent;
+  color: var(--tint);
+}
+
+.btn--chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 44px;
+  padding: 0 14px 0 10px;
+  border-radius: 999px;
+  font-size: 15px;
+  background: var(--fill);
+  color: var(--tint);
 }
 
 .btn:disabled {
-  opacity: 0.45;
+  opacity: 0.35;
   cursor: not-allowed;
+  transform: none;
 }
 
-.grid {
-  display: grid;
-  grid-template-columns: 1.1fr 0.9fr;
-  gap: 20px;
-}
-
-.stage {
-  position: relative;
-  min-height: 420px;
-  overflow: hidden;
-  background: #090b08;
-  border: 1px solid var(--line);
-}
-
-.stage video {
-  display: block;
+.input {
   width: 100%;
-  height: 100%;
-  object-fit: cover;
-  transform: scaleX(-1);
+  min-height: 52px;
+  border: 0;
+  border-radius: 14px;
+  background: var(--fill);
+  padding: 0 16px;
+  font-size: 17px;
 }
 
-.frame {
-  pointer-events: none;
-  position: absolute;
-  inset: 18px;
-  border: 1px solid rgba(208, 138, 60, 0.55);
+.input::placeholder {
+  color: var(--tertiary);
 }
 
-.frame::before,
-.frame::after {
+.input:focus {
+  outline: none;
+  background: color-mix(in srgb, var(--tint) 10%, var(--fill));
+}
+
+/* --- Campos de la pantalla de registro ------------------------------------- */
+
+.field {
+  display: block;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.field--group {
+  margin-top: 6px;
+}
+
+.field__label {
+  display: block;
+  margin: 0 0 8px 2px;
+  padding: 0;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--secondary);
+}
+
+.field__help {
+  margin: 10px 2px 0;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--tertiary);
+  text-wrap: pretty;
+}
+
+/*
+  Elección de lentes.
+
+  Dos tarjetas y no un interruptor, y sin valor por defecto: la respuesta
+  cambia el registro entero (una ronda o dos) y equivocarse en silencio se paga
+  días después con un login que no funciona. `aria-pressed` en vez de radios
+  nativos porque cada opción lleva un título y una consecuencia, y un `<input
+  type=radio>` con dos líneas de etiqueta no se deja maquetar sin pelearse.
+*/
+.choice {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.choice__option {
+  appearance: none;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-height: 76px;
+  padding: 14px;
+  border: 0;
+  border-radius: 16px;
+  background: var(--fill);
+  color: var(--label);
+  text-align: left;
+  cursor: pointer;
+  box-shadow: inset 0 0 0 1.5px transparent;
+  transition:
+    background-color 180ms ease,
+    box-shadow 180ms ease,
+    transform 160ms var(--ease);
+}
+
+.choice__option:active {
+  transform: scale(0.985);
+}
+
+.choice__option[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--tint) 14%, transparent);
+  box-shadow: inset 0 0 0 1.5px var(--tint);
+}
+
+.choice__title {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.choice__option[aria-pressed="true"] .choice__title {
+  color: var(--tint);
+}
+
+.choice__hint {
+  font-size: 13px;
+  line-height: 1.3;
+  color: var(--secondary);
+}
+
+/*
+  Vista previa del trámite: cuántas rondas, cuántas capturas, cuánto tarda.
+
+  "El registro es largo" era medio problema de longitud y medio de expectativa.
+  Esto no acorta nada; quita la sensación de estar dentro de algo sin final.
+*/
+.plan {
+  margin: 4px 0 0;
+  padding: 14px 16px;
+  list-style: none;
+  border-radius: 16px;
+  background: var(--fill);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--secondary);
+  animation: line-in 300ms var(--ease) both;
+}
+
+.plan li {
+  position: relative;
+  padding-left: 20px;
+}
+
+.plan li + li {
+  margin-top: 4px;
+}
+
+.plan li::before {
   content: "";
   position: absolute;
-  width: 28px;
-  height: 28px;
-  border: 2px solid var(--copper);
+  left: 4px;
+  top: 0.62em;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--tint);
 }
 
-.frame::before {
-  top: -2px;
-  left: -2px;
-  border-right: 0;
+.plan strong {
+  color: var(--label);
+  font-weight: 600;
+}
+
+.plan--ok {
+  margin-bottom: 28px;
+}
+
+.plan--ok li::before {
+  background: var(--ok);
+}
+
+:where(button, input, summary, a):focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+  border-radius: 14px;
+}
+
+/* --- Glifos y avatar ------------------------------------------------------- */
+
+.glyph {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  margin-bottom: 20px;
+  border-radius: 50%;
+  background: var(--fill);
+  color: var(--secondary);
+}
+
+.glyph svg {
+  width: 30px;
+  height: 30px;
+}
+
+.glyph--ok {
+  background: color-mix(in srgb, var(--ok) 18%, transparent);
+  color: var(--ok);
+}
+
+.glyph--warn {
+  background: color-mix(in srgb, var(--warn) 18%, transparent);
+  color: var(--warn);
+}
+
+.avatar {
+  display: grid;
+  place-items: center;
+  width: 68px;
+  height: 68px;
+  margin-bottom: 22px;
+  border-radius: 50%;
+  background: var(--tint);
+  color: var(--on-tint);
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+/* --- Detalles técnicos, plegados ------------------------------------------- */
+
+.diag {
+  margin-top: 40px;
+  border-top: 1px solid var(--separator);
+  padding-top: 14px;
+  font-size: 15px;
+}
+
+.diag summary {
+  cursor: pointer;
+  color: var(--tertiary);
+  font-size: 14px;
+  list-style: none;
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.diag summary::-webkit-details-marker {
+  display: none;
+}
+
+.diag summary::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 200ms ease;
+}
+
+.diag[open] summary::before {
+  transform: rotate(45deg);
+}
+
+.diag__list {
+  margin: 12px 0 0;
+}
+
+.diag__row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--separator);
+}
+
+.diag__row:last-child {
   border-bottom: 0;
 }
 
-.frame::after {
-  right: -2px;
-  bottom: -2px;
-  border-left: 0;
-  border-top: 0;
+.diag__row dt {
+  color: var(--secondary);
+  font-size: 14px;
 }
+
+.diag__row dd {
+  margin: 0;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: max(20px, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  max-width: min(28rem, calc(100% - 32px));
+  margin: 0;
+  padding: 12px 18px;
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--danger);
+  font-size: 15px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+}
+
+/* --- Captura --------------------------------------------------------------- */
+
+.capture {
+  position: relative;
+  flex: 1;
+  min-height: 100dvh;
+  overflow: hidden;
+  background: #000;
+  color: #fff;
+  animation: screen-in 420ms cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+
+/* Espera del `Suspense` mientras llega el chunk de la captura. Solo se ve si
+   alguien pulsa antes de que termine la precarga del arranque. */
+.capture--warming {
+  display: grid;
+  place-items: center;
+}
+
+.capture--warming .capture__foot {
+  position: static;
+  padding: 0;
+}
+
+.capture__stage {
+  position: absolute;
+  inset: 0;
+}
+
+/* El vídeo se refleja para que el usuario se vea como en un espejo; el anillo
+   queda FUERA de este contenedor, si no el progreso se llenaría al revés. */
+.capture__mirror {
+  position: absolute;
+  inset: 0;
+  transform: scaleX(-1);
+}
+
+.capture__mirror video,
+.capture__mirror canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.capture__mirror video {
+  object-fit: cover;
+}
+
+.capture__mirror canvas {
+  pointer-events: none;
+}
+
+.capture__scrim {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(to bottom, rgba(0, 0, 0, 0.45), transparent 22%),
+    linear-gradient(to top, rgba(0, 0, 0, 0.65), transparent 34%);
+}
+
+.ring {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.ring path {
+  fill: none;
+  stroke-linecap: round;
+}
+
+/*
+  Dos capas con dos trabajos distintos, y esa separación es el diseño entero:
+
+  - La TRAZA continua dice el ESTADO. Es el contorno del óvalo, y su color es lo
+    que sustituyó a los medidores de luz y nitidez: apagada si no te vemos,
+    blanca si te seguimos, azul si estás bien encuadrado, ámbar si la imagen no
+    acompaña (poca luz, contraluz, movida).
+  - Los TRAMOS dicen el PROGRESO. Uno por gesto. Los que están hechos se
+    encienden en verde. Sustituyen a los puntos que iban bajo el título y al
+    contador "2/5": las dos piezas respondían a "¿cuánto falta?" desde una
+    esquina de la pantalla, y ahora se responde en el sitio donde la persona ya
+    está mirando.
+*/
+/*
+  La traza es GEOMETRÍA, no señal: una hairline constante que mantiene el óvalo
+  legible como guía de encuadre incluso cuando no se te ve. Se probó al revés
+  —el estado en la traza y los tramos en blanco— y lo que se veía era el color
+  asomando por los huecos entre tramos, que leía como suciedad y no como aviso.
+*/
+.ring__track {
+  stroke: rgba(255, 255, 255, 0.15);
+  stroke-width: 2;
+}
+
+/*
+  Los TRAMOS llevan las dos cosas, y por eso el anillo puede ser la única señal
+  de la pantalla: el color dice el estado y la cuenta dice el progreso.
+*/
+.ring__seg {
+  stroke: var(--ring-idle);
+  stroke-width: 4.5;
+  transition:
+    stroke 260ms ease,
+    stroke-dasharray 200ms linear;
+  /* Sobre vídeo claro un trazo blanco al 30 % desaparece. La sombra es lo que
+     mantiene los tramos pendientes legibles contra una pared blanca. */
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.6));
+}
+
+/* No te vemos: el anillo se apaga, pero no desaparece. Sigue siendo la guía de
+   dónde ponerse. */
+.ring[data-state="none"] .ring__seg {
+  stroke: rgba(255, 255, 255, 0.22);
+}
+
+/* Te vemos bien. Es el azul del sistema, el mismo del botón principal. */
+.ring[data-state="framed"] .ring__seg {
+  stroke: rgba(10, 132, 255, 0.9);
+}
+
+/*
+  La imagen no acompaña: poca luz, contraluz, quemado o movido. **Esto es lo que
+  sustituye a los dos medidores.** Es color y solo color, así que no puede ser la
+  única forma de enterarse: el mismo aviso, en palabras, va en la región
+  `aria-live` y en «Detalles técnicos». Ver `imageWarning` en `quality.ts`.
+*/
+.ring[data-state="warn"] .ring__seg {
+  stroke: rgba(255, 214, 10, 0.92);
+}
+
+.ring[data-state="blink"] .ring__seg,
+.ring[data-state="shot"] .ring__seg {
+  stroke: rgba(255, 255, 255, 0.7);
+}
+
+/* Va después de las reglas de estado a propósito: misma especificidad, gana la
+   última, y un tramo ya capturado no debe cambiar de color porque la luz baje. */
+.ring .ring__seg[data-on] {
+  stroke: var(--ring-shot);
+}
+
+/*
+  Relleno del tramo EN CURSO: las tres vueltas que hay que aguantar la pose antes
+  de que dispare. Antes era un arco aparte que daba la vuelta al óvalo entero;
+  ahora crece dentro de su propio tramo, así que el mismo gesto de "se está
+  llenando" dice también cuál de los cinco pasos se está llenando.
+*/
+.ring__hold {
+  stroke: var(--ring-hold);
+  stroke-width: 7;
+  transition: stroke-dasharray 140ms linear;
+  filter: drop-shadow(0 0 6px rgba(48, 209, 88, 0.5));
+}
+
+/* El "clic" de cada captura: un eco del óvalo que se abre y se apaga. Se
+   remonta con `key={pulse}`, así que la animación se reinicia sola. */
+.ring__pulse {
+  stroke: var(--ring-shot);
+  stroke-width: 5;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: ring-pulse 620ms cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+
+@keyframes ring-pulse {
+  0% {
+    opacity: 0.95;
+    transform: scale(1);
+    stroke-width: 8;
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.09);
+    stroke-width: 2;
+  }
+}
+
+.capture__top {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: max(14px, env(safe-area-inset-top)) 16px 0;
+}
+
+.capture__bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.capture__top .btn--chip {
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+  backdrop-filter: blur(20px) saturate(180%);
+}
+
+.capture__title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.85);
+  text-shadow: 0 1px 12px rgba(0, 0, 0, 0.5);
+}
+
+/*
+  Aquí vivían tres piezas que ya no existen y que conviene nombrar para que
+  nadie las eche de menos sin saber por qué se fueron:
+
+  - `.capture__count`, el «2/5» de la esquina. Redundante desde que el anillo
+    tiene un tramo por gesto.
+  - `.capture__shot` / `.capture__check`, la píldora verde «Captura 3 de 5
+    guardada» que se quedaba segundo y medio. Era un segundo bloque de texto en
+    pantalla justo cuando ya había pasado algo visible; el acuse lo da el tramo
+    que se enciende y el pulso del anillo. El `role="status"` sobrevive, sin
+    caja: se anuncia y no se pinta.
+  - `.steps`, la fila de puntos. Sustituida por los tramos del anillo.
+*/
+
+/*
+  El pie se quedó en dos cosas: una línea de texto y un pliegue callado. Antes
+  apilaba aviso de degradación, instrucción, consejo, «Luego: …», dos medidores
+  y el enlace de rendimiento — seis filas que en un móvil corto empujaban el
+  óvalo hasta cortarlo. El `gap` baja de 10 a 6 px porque ya no hay nada que
+  separar salvo el resumen del `<details>`.
+*/
+.capture__foot {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 0 24px max(26px, calc(env(safe-area-inset-bottom) + 16px));
+  text-align: center;
+}
+
+/*
+  La única línea de texto de la pantalla.
+
+  Baja de `clamp(25px, 6.4vw, 34px)` a `clamp(22px, 5.4vw, 29px)` porque a 34 px
+  con 18ch de ancho «Gira la cabeza a la izquierda» se comía tres líneas y, con
+  el consejo y los medidores debajo, casi un tercio del alto. Ahora es lo único
+  que hay abajo, así que no necesita gritar.
+
+  El `min-height` de dos líneas NO es estética: cabecera y pie se miden con un
+  `ResizeObserver` y de ahí sale el óvalo. Sin reserva, pasar de «Mira de frente»
+  (una línea) a «Cierra los ojos y ábrelos» (dos) cambiaba el `inset` inferior y
+  el óvalo daba un salto en cada gesto.
+*/
+.capture__instruction {
+  margin: 0;
+  max-width: 17ch;
+  min-height: calc(2em * 1.15);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  font-size: clamp(22px, 5.4vw, 29px);
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: -0.025em;
+  text-wrap: balance;
+  text-shadow: 0 2px 24px rgba(0, 0, 0, 0.75);
+}
+
+/* Cuando la causa BLOQUEA, el titular ya no es el gesto sino el arreglo. Se
+   marca con color, pero el color no es el mensaje: el texto ya cambió. */
+.capture__instruction[data-blocking] {
+  color: var(--coach-warn);
+}
+
+.capture__line {
+  display: inline-block;
+  animation: line-in 320ms var(--ease) both;
+}
+
+@keyframes line-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+/*
+  Aquí vivían `.capture__coach` (el recuadro amarillo con la causa), su variante
+  con borde ámbar para las causas de luz, `.capture__next` («Luego: girar la
+  cabeza…») y `.capture__meters` con sus dos `.meter`.
+
+  Los cuatro decían cosas ciertas. El problema era que las decían a la vez, y
+  encima de la instrucción, mientras la persona intentaba girar la cabeza.
+  Dónde acabó cada una:
+
+  - La causa **sustituye** a la instrucción cuando bloquea de verdad, y solo tras
+    `COACH_DELAY_MS`; usa el mismo `.capture__instruction`, con
+    `[data-blocking]`. Nunca las dos a la vez.
+  - El `hint` de la causa y el gesto pendiente viven en la región `aria-live`.
+  - Luz y nitidez las comunica el color de la traza del anillo, y en palabras
+    dentro de «Detalles técnicos».
+*/
+
+.capture__tag {
+  margin: 0;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+  backdrop-filter: blur(20px) saturate(180%);
+  font-size: 13px;
+  font-weight: 500;
+  color: #fff;
+}
+
+.capture__alert {
+  margin: 0;
+  max-width: 34ch;
+  padding: 10px 16px;
+  border-radius: 14px;
+  background: rgba(215, 0, 21, 0.92);
+  color: #fff;
+  font-size: 15px;
+}
+
+/*
+  Degradación honesta, ahora en la CABECERA y solo la grave.
+
+  Estaba en el pie, encima de la instrucción: un segundo bloque de texto justo
+  donde no cabía otro. Arriba comparte sitio con la etiqueta de ronda, que es
+  también información de contexto y no de acción, y deja el pie con una sola
+  línea. El nivel "aviso" ya no se pinta: baja a «Detalles técnicos» y a la
+  región `aria-live`.
+*/
+.capture__degraded {
+  margin: 0;
+  max-width: 32ch;
+  padding: 8px 14px;
+  border-radius: 16px;
+  background: rgba(180, 105, 0, 0.9);
+  color: #fff;
+  font-size: 13px;
+  line-height: 1.35;
+  text-wrap: balance;
+}
+
+/*
+  El pliegue técnico. Es el único resto de interfaz que queda en el pie además
+  de la instrucción, y está deliberadamente por debajo del umbral de atención:
+  12 px, gris, sin triángulo. Sigue siendo un `<summary>` nativo, así que se
+  alcanza con el tabulador y tiene su foco visible.
+*/
+.capture__diag {
+  max-width: 40ch;
+  font-size: 12px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.62);
+  text-align: left;
+}
+
+.capture__diag summary {
+  cursor: pointer;
+  text-align: center;
+  list-style: none;
+  padding: 2px 8px;
+  border-radius: 8px;
+  color: rgba(255, 255, 255, 0.42);
+}
+
+.capture__diag summary::-webkit-details-marker {
+  display: none;
+}
+
+.capture__diag p {
+  margin: 4px 0 0;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Capa modal sobre la cámara -------------------------------------------- */
 
 .overlay {
   position: absolute;
-  left: 18px;
-  right: 18px;
-  bottom: 18px;
-  background: rgba(16, 20, 15, 0.78);
-  padding: 12px 14px;
-  font-family: "Avenir Next", "Segoe UI", sans-serif;
-  font-size: 0.92rem;
-}
-
-.field {
+  inset: 0;
   display: grid;
-  gap: 8px;
-  margin-bottom: 16px;
+  place-items: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(24px) saturate(160%);
+  animation: screen-in 260ms ease both;
 }
 
-.field label {
-  font-family: "Avenir Next", "Segoe UI", sans-serif;
-  font-size: 0.78rem;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: rgba(239, 230, 207, 0.6);
-}
-
-.field input {
-  background: transparent;
-  border: 0;
-  border-bottom: 1px solid var(--line);
-  color: var(--paper);
-  padding: 10px 0;
-}
-
-.steps {
-  display: grid;
-  gap: 8px;
-  margin: 16px 0 22px;
-  padding: 0;
-  list-style: none;
-}
-
-.steps li {
+.overlay__card {
+  width: 100%;
+  max-width: 22rem;
   display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 8px 0;
-  border-bottom: 1px solid var(--line);
-  color: rgba(239, 230, 207, 0.55);
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 28px 24px 24px;
+  border-radius: 24px;
+  background: var(--surface);
+  color: var(--label);
+  text-align: center;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.4);
 }
 
-.steps li.active {
-  color: var(--paper);
+.overlay__card {
+  /* La tarjeta de recuperación puede llevar título, explicación, tres botones y
+     los detalles técnicos plegados: en un móvil en horizontal no cabe, y que se
+     desplace por dentro es mejor que que se salga de la pantalla. */
+  max-height: calc(100dvh - 48px);
+  overflow-y: auto;
 }
 
-.steps li.done {
-  color: var(--moss);
+.overlay__card .body {
+  margin-bottom: 20px;
 }
 
-.note,
-.error {
-  font-family: "Avenir Next", "Segoe UI", sans-serif;
-  font-size: 0.92rem;
+.overlay__card .btn {
+  width: 100%;
+  margin-top: 4px;
 }
 
-.error {
-  color: var(--danger);
+.overlay__card .body:last-child {
+  margin-bottom: 0;
 }
 
-.metrics {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 12px;
-  margin: 20px 0;
+/* La letra pequeña tranquilizadora: "lo ya capturado se conserva". Es la
+   diferencia entre repetir una ronda y volver a empezar de cero. */
+.overlay__meta {
+  margin: -12px 0 16px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: var(--fill);
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--secondary);
+  text-wrap: pretty;
 }
 
-.metric {
-  border-top: 1px solid var(--line);
-  padding-top: 10px;
+.diag--tight {
+  width: 100%;
+  margin-top: 18px;
+  text-align: left;
 }
 
-.metric b {
-  display: block;
-  font-size: 1.4rem;
-  font-family: "Avenir Next", "Segoe UI", sans-serif;
+.diag__raw {
+  margin: 10px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--tertiary);
+  word-break: break-word;
 }
 
-.metric span {
-  color: rgba(239, 230, 207, 0.55);
-  font-size: 0.82rem;
+.spinner {
+  width: 30px;
+  height: 30px;
+  margin-bottom: 14px;
+  border-radius: 50%;
+  border: 3px solid var(--fill);
+  border-top-color: var(--tint);
+  animation: spin 900ms linear infinite;
 }
 
-@media (max-width: 860px) {
-  .grid {
-    grid-template-columns: 1fr;
+/* Sobre vídeo (o sobre el negro de la espera) el tema no aplica. */
+.spinner--light {
+  border-color: rgba(255, 255, 255, 0.22);
+  border-top-color: #fff;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* --- Pantallas grandes ----------------------------------------------------- */
+
+@media (min-width: 900px) {
+  .screen {
+    padding-inline: 64px;
   }
 
-  .stage {
-    min-height: 320px;
+  .capture__instruction {
+    font-size: 30px;
+    max-width: 20ch;
+  }
+
+  .capture__foot {
+    padding-bottom: 44px;
+  }
+}
+
+/* Móvil en horizontal: el óvalo se escala con la altura, así que la instrucción
+   tiene que encoger o acaba pisándolo. */
+@media (max-height: 560px) {
+  .capture__instruction {
+    font-size: 20px;
+  }
+
+  .capture__foot {
+    gap: 4px;
+    padding-bottom: max(14px, env(safe-area-inset-bottom));
+  }
+
+  /* En horizontal el pliegue técnico es lo primero que sobra: el óvalo se
+     escala con la altura y cada fila del pie se la come entera. */
+  .capture__diag {
+    display: none;
+  }
+
+  /* En horizontal sobra ancho y falta alto: el titular y los huecos se aprietan
+     para que la pantalla entera quepa sin scroll. */
+  .screen {
+    padding-top: 56px;
+    padding-bottom: 24px;
+  }
+
+  .display {
+    font-size: clamp(26px, 4.5vw, 32px);
+    margin-bottom: 10px;
+  }
+
+  .body {
+    margin-bottom: 20px;
+  }
+
+  .glyph,
+  .avatar {
+    width: 44px;
+    height: 44px;
+    margin-bottom: 12px;
+    font-size: 18px;
+  }
+
+  .glyph svg {
+    width: 24px;
+    height: 24px;
+  }
+
+  .btn {
+    min-height: 46px;
+  }
+}
+
+/* --- Movimiento reducido --------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+
+  .ring__pulse {
+    display: none;
   }
 }

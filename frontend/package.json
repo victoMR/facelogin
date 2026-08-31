@@ -4,9 +4,13 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "predev": "node ../scripts/sync-assets.mjs",
     "dev": "vite",
+    "prebuild": "node ../scripts/sync-assets.mjs",
     "build": "tsc -p tsconfig.json && vite build",
-    "preview": "vite preview"
+    "build:perf": "node ../scripts/sync-assets.mjs && tsc -p tsconfig.json && VITE_FACELOGIN_TEST_STREAM=1 vite build --outDir dist-perf",
+    "preview": "vite preview",
+    "test": "tsx --test \"src/__tests__/*.test.ts\""
   },
   "dependencies": {
     "@vladmandic/face-api": "^1.7.15",
@@ -14,9 +18,11 @@
     "react-dom": "^19.1.1"
   },
   "devDependencies": {
+    "@tensorflow/tfjs-backend-wasm": "^4.22.0",
     "@types/react": "^19.1.12",
     "@types/react-dom": "^19.1.9",
     "@vitejs/plugin-react": "^5.0.2",
+    "tsx": "^4.20.5",
     "typescript": "^5.9.2",
     "vite": "^7.1.5"
   }

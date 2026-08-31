@@ -1,0 +1,8 @@
+{
+  "/models/tiny_face_detector_model-weights_manifest.json": "XRr0hJrEjVuYX0qbFgEMUSNT3db8xj1Q/QvJ6eZCluU=",
+  "/models/tiny_face_detector_model.bin": "t1A8598xA5scQzFqm4Zcq2pw3XSMxgLT+ii1UVA8OHE=",
+  "/models/face_landmark_68_model-weights_manifest.json": "ykiGY5+G6Zs5/tDBVfgbYzFyJXc72WFnFuiHsBUzick=",
+  "/models/face_landmark_68_model.bin": "RhHvZch9g20D1oSzDuxNGV2LIZ+h3Vj8WJRYMca5KZs=",
+  "/models/face_recognition_model-weights_manifest.json": "y6/6UBsLknWhK2M1emhD5+MMBU4ckVHhpfh5sm4ymGs=",
+  "/models/face_recognition_model.bin": "tBPkINaECyd1+6MgCNtvPN2wfUhZZ/tCz883nBaoxYk="
+}

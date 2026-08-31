@@ -8,3 +8,29 @@ backend/data/
 *.log
 .vite
 coverage/
+frontend/certs/
+.cache/
+
+# Registro de clientes OIDC: lleva client_secret en claro.
+backend/config/clients.json
+
+# Binarios que `scripts/sync-assets.mjs` copia desde node_modules en predev y
+# prebuild. 7.8 MB que en git envejecerían mal y se desincronizarían de la
+# versión del paquete. `frontend/src/model-digests.json` SÍ se commitea: es la
+# huella con la que se verifican, y es lo que sustituye al SRI que no había.
+frontend/public/models/
+frontend/public/tfjs/
+frontend/dist-perf/
+scripts/perf/resultados/
+
+# Dataset de evaluación del umbral (LFW) y sus descriptores cacheados: ~390 MB
+# que `npm run eval:threshold` vuelve a descargar y a generar de forma
+# determinista. El informe (`scripts/eval/resultados/`) y el fixture del test de
+# regresión (`backend/src/__tests__/fixtures/`) SÍ se commitean: son lo que
+# permite comprobar los números sin bajarse el dataset.
+.eval-data/
+
+# Artefactos de build temporales y config real de clientes OIDC
+frontend/dist-mesh/
+dist-perf/
+backend/config/clients.json
