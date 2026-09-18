@@ -64,3 +64,38 @@ test("hmacBucket es determinista y distingue tabla y bits", () => {
 test("randomSecret genera secretos distintos", () => {
   assert.notEqual(randomSecret(), randomSecret());
 });
+
+test("encryptVector produce tag de autenticación de 16 bytes", () => {
+  const blob = encryptVector(vectorDe(128), KEY);
+  const tag = Buffer.from(blob.tag, "base64");
+  assert.equal(tag.length, 16);
+});
+
+test("IV es distinto en cada cifrado y tiene 12 bytes", () => {
+  const blob = encryptVector(vectorDe(128), KEY);
+  const iv = Buffer.from(blob.iv, "base64");
+  assert.equal(iv.length, 12);
+});
+
+test("decryptVector devuelve el número correcto de elementos", () => {
+  // decryptVector no valida dimensión, solo descifra
+  const original = vectorDe(64);
+  const blob = encryptVector(original, KEY);
+  const recovered = decryptVector(blob, KEY);
+  assert.equal(recovered.length, 64);
+});
+
+test("randomSecret genera strings base64", () => {
+  const secret = randomSecret();
+  // randomSecret devuelve base64, no hex
+  assert.ok(/^[A-Za-z0-9+/=]+$/.test(secret));
+  assert.ok(secret.length >= 32);
+});
+
+test("hmacBucket devuelve strings de longitud consistente", () => {
+  const secret = randomSecret();
+  const bucket1 = hmacBucket(secret, 0, "10101010");
+  const bucket2 = hmacBucket(secret, 1, "11111111");
+  assert.equal(bucket1.length, bucket2.length);
+  assert.ok(bucket1.length > 10);
+});

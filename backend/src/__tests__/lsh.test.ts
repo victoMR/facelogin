@@ -135,3 +135,58 @@ test("indexar también las muestras sube el recall de una pose fuera del centroi
   assert.ok(conMuestras >= soloCentroide);
   assert.ok(conMuestras / TRIALS > 0.98);
 });
+
+test("lshKeys devuelve exactamente LSH_TABLES claves", () => {
+  const next = rng(30);
+  const vector = randomUnit(next);
+  const keys = lshKeys(vector, PLANES, SECRET);
+  assert.equal(keys.length, LSH_TABLES);
+});
+
+test("lshKeys es determinista para el mismo vector y secreto", () => {
+  const next = rng(31);
+  const vector = randomUnit(next);
+  const keys1 = lshKeys(vector, PLANES, SECRET);
+  const keys2 = lshKeys(vector, PLANES, SECRET);
+  assert.deepEqual(keys1, keys2);
+});
+
+test("lshKeys cambia si cambia el secreto", () => {
+  const next = rng(32);
+  const vector = randomUnit(next);
+  const keys1 = lshKeys(vector, PLANES, SECRET);
+  const keys2 = lshKeys(vector, PLANES, "otro-secreto");
+  assert.notDeepEqual(keys1, keys2);
+});
+
+test("buildPlanes genera planos de la dimensión correcta", () => {
+  const planes = buildPlanes("test-seed", DIM);
+  // buildPlanes devuelve una estructura 3D: [tables][bits][dim]
+  assert.equal(planes.length, LSH_TABLES);
+  for (const table of planes) {
+    assert.equal(table.length, LSH_BITS);
+    for (const plane of table) {
+      assert.equal(plane.length, DIM);
+    }
+  }
+});
+
+test("buildPlanes es determinista para la misma semilla", () => {
+  const planes1 = buildPlanes("same-seed", DIM);
+  const planes2 = buildPlanes("same-seed", DIM);
+  assert.deepEqual(planes1, planes2);
+});
+
+test("buildPlanes genera planos distintos con semillas distintas", () => {
+  const planes1 = buildPlanes("seed-a", DIM);
+  const planes2 = buildPlanes("seed-b", DIM);
+  assert.notDeepEqual(planes1, planes2);
+});
+
+test("lshProbeKeys no contiene claves duplicadas", () => {
+  const next = rng(33);
+  const vector = randomUnit(next);
+  const probe = lshProbeKeys(vector, PLANES, SECRET);
+  const unicos = new Set(probe);
+  assert.equal(unicos.size, probe.length, "no debe haber claves duplicadas");
+});

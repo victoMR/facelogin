@@ -315,3 +315,45 @@ test("atCosine y sigmaFor calibran lo que dicen calibrar", () => {
     assert.ok(Math.abs(intraStats(muestras).mean - objetivo) < 0.03);
   }
 });
+
+test("MIN_INTER_CONDITION_COSINE está calibrado para caras reales", () => {
+  assert.ok(MIN_INTER_CONDITION_COSINE >= 0.9, "debe ser alto para separar condiciones de personas");
+  assert.ok(MIN_INTER_CONDITION_COSINE < 1, "debe ser menor que 1");
+});
+
+test("enrollmentQualityByCondition rechaza array vacío", () => {
+  const result = enrollmentQualityByCondition([]);
+  assert.equal(result.ok, false);
+});
+
+test("storedSamplesPenalty es mayor para más muestras", () => {
+  const p5 = storedSamplesPenalty(5);
+  const p10 = storedSamplesPenalty(10);
+  assert.ok(p10 > p5, "más muestras debe resultar en mayor penalización");
+});
+
+test("clampThreshold nunca devuelve valores fuera de rango", () => {
+  for (const value of [-0.5, 0, 0.5, 0.9, 1.0, 1.5]) {
+    const clamped = clampThreshold(value);
+    assert.ok(clamped >= 0 && clamped <= 1);
+  }
+});
+
+test("adaptiveThreshold aumenta con menor intraMean", () => {
+  const high = adaptiveThreshold(0.96, 0.01, 3, null);
+  const low = adaptiveThreshold(0.88, 0.01, 3, null);
+  assert.ok(low > high, "intraMean menor debe dar umbral más alto");
+});
+
+test("makePersona genera dos condiciones válidas", () => {
+  const next = rng(808);
+  const p = makePersona(next, {
+    crossCosine: MEDIDO.crossCosine,
+    withinCosine: MEDIDO.withinCosine,
+    perCondition: 5,
+  });
+  assert.equal(p.samplesByCondition.length, 2);
+  assert.equal(p.conditionCenters.length, 2);
+  assert.equal(p.samplesByCondition[0].length, 5);
+  assert.equal(p.samplesByCondition[1].length, 5);
+});

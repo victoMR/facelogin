@@ -331,3 +331,47 @@ test("el motor indexa cubetas de las dos condiciones y las recupera sin barrido"
     assert.equal(decision.reason, "lsh", `${etiqueta} necesitó barrido completo`);
   }
 });
+
+test("MEDIDO contiene los valores calibrados de withinCosine", () => {
+  assert.ok(MEDIDO.withinCosine > 0.88);
+  assert.ok(MEDIDO.withinCosine < 1);
+});
+
+test("MEDIDO contiene los valores calibrados de crossCosine", () => {
+  assert.ok(MEDIDO.crossCosine > 0.92);
+  assert.ok(MEDIDO.crossCosine < 1);
+  // crossCosine puede ser mayor o igual que withinCosine en el límite
+  assert.ok(MEDIDO.crossCosine <= MEDIDO.withinCosine + 0.05);
+});
+
+test("MEDIDO impostor parecido está en rango realista", () => {
+  const [min, max] = MEDIDO.impostor.parecido;
+  assert.ok(min >= 0.8 && min <= 0.9);
+  assert.ok(max > min && max <= 0.95);
+});
+
+test("MEDIDO impostor extremo está por encima de parecido", () => {
+  const [minParecido, maxParecido] = MEDIDO.impostor.parecido;
+  const [minExtremo, maxExtremo] = MEDIDO.impostor.extremo;
+  assert.ok(minExtremo >= maxParecido);
+  assert.ok(maxExtremo > minExtremo);
+});
+
+test("MEDIDO probeCosine bueno es mayor que mediocre", () => {
+  assert.ok(MEDIDO.probeCosine.bueno > MEDIDO.probeCosine.mediocre);
+  assert.ok(MEDIDO.probeCosine.bueno > 0.9);
+});
+
+test("medir devuelve todas las métricas esperadas", () => {
+  const montaje: Montaje = {
+    nombre: "test",
+    enrolar: (engine, name, p) => engine.enroll(name, p.samplesByCondition[0].slice(0, 5)),
+    probesPorLogin: 1,
+  };
+  const medicion = medir(montaje, 9999);
+  assert.ok("farParecido" in medicion);
+  assert.ok("farExtremo" in medicion);
+  assert.ok("frrMismaCondicion" in medicion);
+  assert.ok("frrOtraCondicion" in medicion);
+  assert.ok(typeof medicion.farParecido === "number");
+});

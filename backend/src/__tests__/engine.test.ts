@@ -149,3 +149,26 @@ test("una galería vacía rechaza sin reventar", () => {
   assert.equal(decision.reason, "empty-gallery");
   assert.equal(decision.candidates, 0);
 });
+
+test("identify devuelve latencyMs positivo", () => {
+  const { engine } = newEngine();
+  engine.enroll("Test", cluster(0, 0.97, 5));
+  const decision = engine.identify(basis(0));
+  assert.ok(decision.latencyMs >= 0);
+  assert.ok(typeof decision.latencyMs === "number");
+});
+
+test("enroll asigna un id único a cada template", () => {
+  const { engine } = newEngine();
+  const t1 = engine.enroll("Ana", cluster(0, 0.97, 5));
+  const t2 = engine.enroll("Beto", cluster(10, 0.97, 5));
+  assert.notEqual(t1.id, t2.id);
+  assert.ok(t1.id.length > 0);
+  assert.ok(t2.id.length > 0);
+});
+
+test("identify rechaza descriptores mal dimensionados", () => {
+  const { engine } = newEngine();
+  engine.enroll("Test", cluster(0, 0.97, 5));
+  assert.throws(() => engine.identify([[1, 2, 3]]), /128 dimensiones/);
+});
