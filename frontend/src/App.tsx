@@ -392,8 +392,7 @@ export function App() {
             tu cara.
           </h1>
           <p className="body">
-            Sin contraseñas. Tu rostro se convierte en una plantilla cifrada; la foto no se guarda
-            ni sale de este navegador.
+            Sin contraseña. Tu rostro se cifra aquí; la foto no sale del navegador.
           </p>
           <div className="stack">
             <button

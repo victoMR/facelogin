@@ -1,8 +1,16 @@
 # facelogin
+**La foto no viaja.**
 
-Autenticación **solo** por reconocimiento facial. No hay contraseña, correo ni segundo factor: el rostro es la credencial.
+Autenticación solo con tu cara. Sin contraseña.
+El navegador saca un descriptor; el servidor guarda una plantilla cifrada.
+Listo como IdP OIDC (PKCE) para demos e integraciones internas.
 
-Cada enrollo genera una **tabla hash compartida y cifrada**. El navegador extrae un descriptor de 128 dimensiones; el servidor lo cifra con AES-256-GCM, lo indexa con LSH (planos aleatorios + HMAC) y, en el login, recupera candidatos en tiempo casi constante para decidir si eres tú.
+> Demo / IdP interno — no es Face ID bancario. El liveness corre en el cliente.
+
+## Norte
+
+Ambición: el auth **open source sin password** — fácil para ti, infernal para ellos.
+Hoy cumplimos **La foto no viaja** (demo / IdP interno). El camino a seguridad verificable en servidor (attestation, honeypots, threat model + FAR/FPIR) está en [`docs/norte.md`](docs/norte.md).
 
 ## Cómo lo hacen quienes ya lo hicieron bien
 
