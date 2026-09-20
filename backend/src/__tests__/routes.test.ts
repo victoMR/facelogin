@@ -108,8 +108,9 @@ test("GET /health devuelve ok: true", async () => {
       assert.deepEqual(body, { ok: true, mode: "face-only" });
     },
   } as any;
+  const next = () => {};
   const handler = router.stack.find((layer: any) => layer.route?.path === "/health")?.route?.stack[0]?.handle;
-  if (handler) handler(req, res);
+  if (handler) handler(req, res, next);
 });
 
 test("POST /enroll rechaza sin displayName", async () => {
@@ -128,8 +129,9 @@ test("POST /enroll rechaza sin displayName", async () => {
       body = data;
     },
   } as any;
+  const next = () => {};
   const handler = router.stack.find((layer: any) => layer.route?.path === "/enroll")?.route?.stack[0]?.handle;
-  if (handler) handler(req, res);
+  if (handler) handler(req, res, next);
   assert.equal(status, 400);
   assert.ok(body.error);
 });
@@ -155,8 +157,9 @@ test("POST /enroll rechaza descriptores de dimensión incorrecta", async () => {
       body = data;
     },
   } as any;
+  const next = () => {};
   const handler = router.stack.find((layer: any) => layer.route?.path === "/enroll")?.route?.stack[0]?.handle;
-  if (handler) handler(req, res);
+  if (handler) handler(req, res, next);
   assert.equal(status, 400);
 });
 
@@ -176,8 +179,9 @@ test("POST /identify rechaza sin descriptor", async () => {
       body = data;
     },
   } as any;
+  const next = () => {};
   const handler = router.stack.find((layer: any) => layer.route?.path === "/identify")?.route?.stack[0]?.handle;
-  if (handler) handler(req, res);
+  if (handler) handler(req, res, next);
   assert.equal(status, 400);
   assert.ok(body.error);
 });
@@ -195,7 +199,8 @@ test("POST /identify rechaza galería vacía con 401", async () => {
     },
     json: () => {},
   } as any;
+  const next = () => {};
   const handler = router.stack.find((layer: any) => layer.route?.path === "/identify")?.route?.stack[0]?.handle;
-  if (handler) handler(req, res);
+  if (handler) handler(req, res, next);
   assert.equal(status, 401);
 });
