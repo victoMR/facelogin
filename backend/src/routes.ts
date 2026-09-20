@@ -1,7 +1,20 @@
 import { timingSafeEqual } from "node:crypto";
 import { Router, type Request } from "express";
 import { z } from "zod";
+import { issueChallenge, validateChallengeResponse } from "./challenge.js";
 import type { FaceEngine } from "./engine.js";
+import {
+  handleCanaryAccess,
+  handleHoneypotTrigger,
+  isCanaryToken,
+  isHoneypot,
+} from "./honeypot.js";
+import {
+  redactEnrollResponse,
+  redactFailedIdentifyResponse,
+  redactMatchDecisionForLog,
+  sanitizeErrorMessage,
+} from "./redact.js";
 import { readSession, signSession } from "./session.js";
 
 const vectorSchema = z.array(z.number().finite()).length(128);
@@ -38,10 +51,18 @@ const identifySchema = z
   .object({
     descriptor: vectorSchema.optional(),
     descriptors: z.array(vectorSchema).min(1).max(8).optional(),
+    challenge: z.string().optional(),
+    challengeHmac: z.string().optional(),
   })
   .refine((body) => Boolean(body.descriptor) !== Boolean(body.descriptors), {
     message: "Manda `descriptor` o `descriptors`, no ambos.",
-  });
+  })
+  .refine(
+    (body) => Boolean(body.challenge) === Boolean(body.challengeHmac),
+    {
+      message: "Challenge y challengeHmac deben venir juntos.",
+    },
+  );
 
 const IDENTIFY_LIMIT = { max: 8, windowMs: 60_000 };
 const ENROLL_LIMIT = { max: 3, windowMs: 60_000 };
@@ -90,10 +111,17 @@ function bearerToken(req: Request): string {
 }
 
 /** Si FACELOGIN_ENROLL_TOKEN existe, el enrollo exige ese bearer; si no, modo demo abierto. */
-function enrollAuthorized(req: Request): boolean {
+function enrollAuthorized(req: Request): { authorized: boolean; isCanary: boolean } {
   const expected = process.env.FACELOGIN_ENROLL_TOKEN;
-  if (!expected) return true;
-  return constantTimeEquals(bearerToken(req), expected);
+  if (!expected) return { authorized: true, isCanary: false };
+
+  const token = bearerToken(req);
+
+  if (isCanaryToken(token)) {
+    return { authorized: false, isCanary: true };
+  }
+
+  return { authorized: constantTimeEquals(token, expected), isCanary: false };
 }
 
 export function createRouter(engine: FaceEngine, sessionSecret: string): Router {
@@ -103,16 +131,36 @@ export function createRouter(engine: FaceEngine, sessionSecret: string): Router 
     res.json({ ok: true, mode: "face-only" });
   });
 
+  router.get("/challenge", (req, res) => {
+    const ip = req.ip ?? "local";
+    const result = issueChallenge(ip);
+
+    if ("error" in result) {
+      res.status(429).json({ error: result.error });
+      return;
+    }
+
+    res.json({ challenge: result.nonce });
+  });
+
   router.post("/enroll", (req, res) => {
     const ip = req.ip ?? "local";
     if (!rateLimit("enroll", ip, ENROLL_LIMIT.max, ENROLL_LIMIT.windowMs)) {
       res.status(429).json({ error: "Demasiados enrollos. Espera un momento." });
       return;
     }
-    if (!enrollAuthorized(req)) {
+
+    const auth = enrollAuthorized(req);
+    if (auth.isCanary) {
+      handleCanaryAccess(bearerToken(req), ip);
       res.status(401).json({ error: "Enrolamiento no autorizado." });
       return;
     }
+    if (!auth.authorized) {
+      res.status(401).json({ error: "Enrolamiento no autorizado." });
+      return;
+    }
+
     const parsed = enrollSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({
@@ -124,28 +172,12 @@ export function createRouter(engine: FaceEngine, sessionSecret: string): Router 
     try {
       const input = parsed.data.conditions ?? (parsed.data.samples as number[][]);
       const template = engine.enroll(parsed.data.displayName, input);
-      res.json({
-        id: template.id,
-        displayName: template.displayName,
-        samples: template.conditions.reduce((sum, c) => sum + c.encryptedSamples.length, 0),
-        conditions: template.conditions.map((condition) => ({
-          label: condition.label,
-          samples: condition.encryptedSamples.length,
-          intraMean: Number(condition.intraMean.toFixed(4)),
-          intraStd: Number(condition.intraStd.toFixed(4)),
-        })),
-        interConditionCosine:
-          template.interConditionCosine === null
-            ? null
-            : Number(template.interConditionCosine.toFixed(4)),
-        // Informativo: el umbral real se recalcula en cada identify con la galería vigente.
-        thresholdAtEnroll: Number(template.thresholdAtEnroll.toFixed(4)),
-        intraMean: Number(template.intraMean.toFixed(4)),
-        intraStd: Number(template.intraStd.toFixed(4)),
-      });
+      const safeResponse = redactEnrollResponse(template);
+      res.json(safeResponse);
     } catch (error) {
       const status = typeof error === "object" && error && "status" in error ? Number(error.status) : 500;
-      const message = error instanceof Error ? error.message : "No se pudo enrolar.";
+      const rawMessage = error instanceof Error ? error.message : "No se pudo enrolar.";
+      const message = sanitizeErrorMessage(rawMessage);
       res.status(status).json({ error: message });
     }
   });
@@ -156,29 +188,64 @@ export function createRouter(engine: FaceEngine, sessionSecret: string): Router 
       res.status(429).json({ error: "Demasiados intentos. Espera un momento." });
       return;
     }
+
     const parsed = identifySchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: "Descriptor facial inválido." });
       return;
     }
+
+    const requireChallenge = process.env.FACELOGIN_REQUIRE_CHALLENGE === "true";
+    if (requireChallenge && !parsed.data.challenge) {
+      res.status(400).json({
+        error: "Se requiere challenge. Solicita uno en GET /api/challenge.",
+      });
+      return;
+    }
+
+    if (parsed.data.challenge && parsed.data.challengeHmac) {
+      const descriptorPayload = JSON.stringify(
+        parsed.data.descriptors ?? [parsed.data.descriptor],
+      );
+      const valid = validateChallengeResponse(
+        parsed.data.challenge,
+        parsed.data.challengeHmac,
+        descriptorPayload,
+        sessionSecret,
+        ip,
+      );
+
+      if (!valid) {
+        res.status(401).json({ error: "Challenge inválido o expirado." });
+        return;
+      }
+    }
+
     try {
       const probes = parsed.data.descriptors ?? [parsed.data.descriptor as number[]];
       const decision = engine.identify(probes);
-      if (!decision.matched || !decision.identityId || !decision.displayName) {
-        // El body es opaco a propósito: devolver score/threshold convierte este
-        // endpoint en un oráculo con el que se puede escalar hasta pasar el umbral.
-        console.log(
-          `[identify] rechazado ip=${ip} score=${decision.score.toFixed(4)} ` +
-            `threshold=${decision.threshold.toFixed(4)} candidates=${decision.candidates} ` +
-            `latencyMs=${decision.latencyMs} reason=${decision.reason}`,
-        );
-        res.status(401).json({ error: "No hay coincidencia facial suficiente." });
+
+      if (decision.identityId && isHoneypot(decision.identityId)) {
+        handleHoneypotTrigger(decision.identityId, ip);
+        const failResponse = redactFailedIdentifyResponse();
+        res.status(401).json(failResponse);
         return;
       }
+
+      if (!decision.matched || !decision.identityId || !decision.displayName) {
+        const logEntry = redactMatchDecisionForLog(decision, ip);
+        console.log("[identify] rechazado", JSON.stringify(logEntry));
+
+        const failResponse = redactFailedIdentifyResponse();
+        res.status(401).json(failResponse);
+        return;
+      }
+
       const token = await signSession(sessionSecret, {
         sub: decision.identityId,
         name: decision.displayName,
       });
+
       res.json({
         token,
         identity: {
@@ -194,7 +261,8 @@ export function createRouter(engine: FaceEngine, sessionSecret: string): Router 
       });
     } catch (error) {
       const status = typeof error === "object" && error && "status" in error ? Number(error.status) : 500;
-      const message = error instanceof Error ? error.message : "No se pudo identificar.";
+      const rawMessage = error instanceof Error ? error.message : "No se pudo identificar.";
+      const message = sanitizeErrorMessage(rawMessage);
       res.status(status).json({ error: message });
     }
   });
