@@ -163,6 +163,7 @@ test("createRegistry permite get por client_id", () => {
       redirect_uris: ["https://example.com/cb"],
       scopes: ["openid"],
       confidential: false,
+      allow_insecure_redirect: false,
     },
   ];
   const registry = createRegistry(clients);
@@ -184,6 +185,7 @@ test("createRegistry.all() devuelve copia de todos los clientes", () => {
       redirect_uris: ["https://a.com/cb"],
       scopes: ["openid"],
       confidential: false,
+      allow_insecure_redirect: false,
     },
     {
       client_id: "b",
@@ -191,6 +193,7 @@ test("createRegistry.all() devuelve copia de todos los clientes", () => {
       redirect_uris: ["https://b.com/cb"],
       scopes: ["openid"],
       confidential: false,
+      allow_insecure_redirect: false,
     },
   ];
   const registry = createRegistry(clients);
