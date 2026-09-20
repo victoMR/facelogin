@@ -1,6 +1,7 @@
 import type * as FaceApi from "@vladmandic/face-api";
 import type { FaceLandmarks68 } from "@vladmandic/face-api";
 import { cachingFetch, markModelLoad, MODEL_URL } from "./models";
+import { loadMesh } from "./mesh";
 import {
   augmentLevelForCost,
   AUGMENT_BUDGET_MS,
@@ -134,6 +135,9 @@ export async function loadModels(): Promise<void> {
       faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
       faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
       faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
+      loadMesh().catch((error) => {
+        console.warn("[facelogin] MediaPipe no cargó; el seguimiento usa face-api.", error);
+      }),
     ]);
     modelsReady = true;
     const ms = performance.now() - started;

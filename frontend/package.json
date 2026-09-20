@@ -13,6 +13,7 @@
     "test": "tsx --test \"src/__tests__/*.test.ts\""
   },
   "dependencies": {
+    "@mediapipe/tasks-vision": "^0.10.21",
     "@vladmandic/face-api": "^1.7.15",
     "react": "^19.1.1",
     "react-dom": "^19.1.1"

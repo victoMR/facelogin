@@ -51,6 +51,26 @@ function clusterAround(center: number[], c: number, count: number, spreadFrom: n
   );
 }
 
+test("un segundo enrollo de la misma cara se rechaza", () => {
+  const { engine } = newEngine();
+  engine.enroll("Ana", cluster(0, 0.97, 5));
+  try {
+    engine.enroll("Ana otra vez", cluster(0, 0.97, 5));
+    assert.fail("debía rechazar el duplicado");
+  } catch (error) {
+    assert.ok(error instanceof Error);
+    assert.equal((error as { status?: number }).status, 409);
+    assert.match(error.message, /ya está registrada/i);
+  }
+});
+
+test("dos caras distintas sí pueden enrolarse", () => {
+  const { engine, store } = newEngine();
+  engine.enroll("Ana", cluster(0, 0.97, 5));
+  engine.enroll("Luis", cluster(60, 0.97, 5));
+  assert.equal(store.all().length, 2);
+});
+
 test("identify reconoce a la identidad enrolada y rechaza a una desconocida", () => {
   const { engine } = newEngine();
   engine.enroll("Ana", cluster(0, 0.97, 5));
@@ -171,4 +191,32 @@ test("identify rechaza descriptores mal dimensionados", () => {
   const { engine } = newEngine();
   engine.enroll("Test", cluster(0, 0.97, 5));
   assert.throws(() => engine.identify([[1, 2, 3]]), /128 dimensiones/);
+});
+
+function shape(seed: number): number[] {
+  return l2Normalize(Array.from({ length: 64 }, (_, i) => Math.sin(seed + i * 0.17)));
+}
+
+test("enroll guarda la firma 3D cifrada, no una foto", () => {
+  const { engine } = newEngine();
+  const template = engine.enroll("Ana", cluster(0, 0.97, 5), shape(1));
+  assert.ok(template.encryptedShape);
+  assert.ok(template.encryptedShape.iv);
+  assert.ok(template.encryptedShape.data);
+  assert.equal("photo" in template, false);
+});
+
+test("identify acepta la misma malla y rechaza otra geometría", () => {
+  const { engine } = newEngine();
+  engine.enroll("Ana", cluster(0, 0.97, 5), shape(1));
+  const probe = l2Normalize(combine([[0, 0.95], [40, Math.sqrt(1 - 0.95 ** 2)]]));
+  assert.equal(engine.identify(probe, shape(1)).matched, true);
+  assert.equal(engine.identify(probe, shape(9)).matched, false);
+});
+
+test("identify sin malla sigue funcionando en plantillas viejas", () => {
+  const { engine } = newEngine();
+  engine.enroll("Ana", cluster(0, 0.97, 5));
+  const probe = l2Normalize(combine([[0, 0.95], [40, Math.sqrt(1 - 0.95 ** 2)]]));
+  assert.equal(engine.identify(probe).matched, true);
 });

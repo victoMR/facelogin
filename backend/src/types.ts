@@ -51,6 +51,16 @@ export type FaceTemplate = {
    */
   thresholdAtEnroll: number;
   /**
+   * Firma 3D (64-d) de la malla, cifrada. No es una foto: es geometría
+   * pose-normalizada. Plantillas viejas no la tienen.
+   */
+  encryptedShape?: EncryptedBlob;
+  /**
+   * Claves públicas de aparatos de confianza (authorized_keys). La privada
+   * nunca se guarda aquí.
+   */
+  devices?: import("./devices.js").TrustedDevice[];
+  /**
    * Forma anterior a los sub-clusters (vaults ya escritos en disco). El motor
    * las convierte a una condición única al leerlas; no se escriben nunca más.
    */

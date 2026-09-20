@@ -14,7 +14,7 @@
  * Se ejecuta solo en `predev`, `prebuild` y `pretest` del workspace frontend.
  */
 import { createHash } from "node:crypto";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -75,10 +75,31 @@ for (const [dir, name] of WASM) {
  * antes de servir una entrada, así que un blob corrupto o manipulado en el
  * `CacheStorage` del navegador se descarta en vez de acabar en la red neuronal.
  */
+const mpWasm = join(root, "node_modules", "@mediapipe", "tasks-vision", "wasm");
+if (existsSync(mpWasm)) {
+  for (const name of readdirSync(mpWasm)) {
+    const from = join(mpWasm, name);
+    if (!statSync(from).isFile()) continue;
+    total += copyInto(from, join(publicDir, "mediapipe", "wasm", name));
+  }
+}
+
+const TASK_URL =
+  "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
+const taskDest = join(publicDir, "mediapipe", "face_landmarker.task");
+if (!existsSync(taskDest) || statSync(taskDest).size < 1_000_000) {
+  const response = await fetch(TASK_URL);
+  if (!response.ok) throw new Error(`No se pudo bajar Face Landmarker (${response.status}).`);
+  mkdirSync(dirname(taskDest), { recursive: true });
+  writeFileSync(taskDest, Buffer.from(await response.arrayBuffer()));
+}
+total += statSync(taskDest).size;
+digests["/mediapipe/face_landmarker.task"] = createHash("sha256").update(readFileSync(taskDest)).digest("base64");
+
 writeFileSync(
   join(root, "frontend", "src", "model-digests.json"),
   `${JSON.stringify(digests, null, 2)}\n`,
 );
 
 const mb = (total / 1024 / 1024).toFixed(1);
-console.log(`[sync-assets] ${MODELS.length} pesos + wasm en frontend/public (${mb} MB)`);
+console.log(`[sync-assets] ${MODELS.length} pesos + wasm + malla 478 en frontend/public (${mb} MB)`);

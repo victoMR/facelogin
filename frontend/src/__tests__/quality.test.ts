@@ -54,6 +54,7 @@ function signals(overrides: Partial<FrameSignals> = {}): FrameSignals {
     yaw: 0.03,
     roll: 0.05,
     photo: GOOD_PHOTO,
+    photoLikely: false,
     ...overrides,
   };
 }
@@ -61,6 +62,12 @@ function signals(overrides: Partial<FrameSignals> = {}): FrameSignals {
 // ---------------------------------------------------------------------------
 // Una causa, la que más pesa
 // ---------------------------------------------------------------------------
+
+test("una cara plana tipo foto se diagnostica como 'foto' y bloquea", () => {
+  const verdict = resolveBlocking(diagnose(signals({ photoLikely: true })), true);
+  assert.equal(verdict.issue, "foto");
+  assert.equal(verdict.blocking, true);
+});
 
 test("una cara bien puesta no genera ninguna queja", () => {
   assert.equal(diagnose(signals()).issue, "ninguno");

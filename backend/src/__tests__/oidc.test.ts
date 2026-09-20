@@ -22,7 +22,16 @@ import { OidcProvider, type ProviderOptions } from "../oidc/provider.js";
 import { resetRateLimits } from "../routes.js";
 import { signSession } from "../session.js";
 import { VaultStore } from "../store.js";
+import { issueVoiceChallenge } from "../words.js";
 import { makePersona, rng } from "./synthetic.js";
+
+function withVoice<T extends Record<string, unknown>>(body: T) {
+  const challenge = issueVoiceChallenge();
+  return {
+    ...body,
+    voice: { id: challenge.id, transcript: challenge.words.join(" ") },
+  };
+}
 
 /** Generar RSA-2048 cuesta; una sola vez para todo el archivo. */
 let keyMaterial = "";
@@ -167,7 +176,7 @@ async function runAuthorization(
     const identified = await fetch(`${h.base}/api/identify`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ descriptor: h.descriptor }),
+      body: JSON.stringify(withVoice({ descriptor: h.descriptor })),
     });
     sessionToken = (await expectJson<{ token: string }>(identified, 200)).token;
   } else {
@@ -923,7 +932,7 @@ test("el enrollo y el login propios siguen intactos con el IdP encendido", async
     const identified = await fetch(`${h.base}/api/identify`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ descriptor: h.descriptor }),
+      body: JSON.stringify(withVoice({ descriptor: h.descriptor })),
     });
     assert.equal(identified.status, 200);
     const { token, identity } = (await identified.json()) as {

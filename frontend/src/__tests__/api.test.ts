@@ -14,6 +14,11 @@ test("ApiError guarda el mensaje y status", () => {
   assert.equal(error.status, 404);
 });
 
+test("ApiError puede llevar un código de negocio", () => {
+  const error = new ApiError("Di las tres palabras", 403, "VOICE_REQUIRED");
+  assert.equal(error.code, "VOICE_REQUIRED");
+});
+
 test("ApiError status es accesible como readonly", () => {
   const error = new ApiError("Unauthorized", 401);
   assert.equal(error.status, 401);

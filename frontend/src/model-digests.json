@@ -4,5 +4,6 @@
   "/models/face_landmark_68_model-weights_manifest.json": "ykiGY5+G6Zs5/tDBVfgbYzFyJXc72WFnFuiHsBUzick=",
   "/models/face_landmark_68_model.bin": "RhHvZch9g20D1oSzDuxNGV2LIZ+h3Vj8WJRYMca5KZs=",
   "/models/face_recognition_model-weights_manifest.json": "y6/6UBsLknWhK2M1emhD5+MMBU4ckVHhpfh5sm4ymGs=",
-  "/models/face_recognition_model.bin": "tBPkINaECyd1+6MgCNtvPN2wfUhZZ/tCz883nBaoxYk="
+  "/models/face_recognition_model.bin": "tBPkINaECyd1+6MgCNtvPN2wfUhZZ/tCz883nBaoxYk=",
+  "/mediapipe/face_landmarker.task": "ZBhOIpsmMQe8K4BMZiXbE0H/K7cxh0sLzC/mVE4Lyf8="
 }

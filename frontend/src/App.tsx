@@ -6,18 +6,23 @@ import {
   oidcApprove,
   oidcDeny,
   oidcRequest,
+  trustDevice,
   MAX_LOGIN_DESCRIPTORS,
   type ConditionSamples,
   type EnrollResult,
   type IdentifyResult,
   type OidcRequestInfo,
+  type VoiceProof,
 } from "./api";
 import type { Capture } from "./FaceCapture";
+import { deviceProof, ensureDevice, isDeviceTrustedLocally, markDeviceTrustedLocally } from "./device";
+import { meanShape, SHAPE_DIM } from "./mesh";
 import {
   enrollChallenges,
   GLASSES_CONDITIONS,
   loginChallenges,
   SINGLE_CONDITION,
+  trustedChallenges,
   type EnrollCondition,
 } from "./liveness";
 
@@ -54,7 +59,7 @@ function Warming() {
   );
 }
 
-type Mode = "home" | "setup" | "enroll" | "login" | "done" | "session" | "oidc" | "oidc-login";
+type Mode = "home" | "setup" | "enroll" | "login" | "done" | "session" | "trust" | "oidc" | "oidc-login";
 
 /**
  * `/authorize` del backend deja al usuario aquí con un identificador opaco. Se
@@ -70,6 +75,7 @@ const SCOPE_LABELS: Record<string, string> = {
 };
 
 type SessionStats = Omit<IdentifyResult, "token" | "identity">;
+type PendingTrust = { token: string; identity: IdentifyResult["identity"]; stats: SessionStats };
 type SessionState = {
   token: string;
   identity: { id: string; displayName: string };
@@ -93,6 +99,11 @@ function groupByCondition(captures: Capture[]): ConditionSamples[] {
  * —el frame del parpadeo, el de peor calidad de la sesión— y era el único
  * intento que tenía el servidor.
  */
+function captureShape(captures: Capture[]): number[] | undefined {
+  const shape = meanShape(captures.map((capture) => capture.shape ?? []).filter((item) => item.length === SHAPE_DIM));
+  return shape.length === SHAPE_DIM ? shape : undefined;
+}
+
 function bestLoginDescriptors(captures: Capture[]): number[][] {
   return [...captures]
     .sort((a, b) => b.quality - a.quality)
@@ -177,17 +188,17 @@ function Row({ label, value }: { label: string; value: string }) {
  */
 function Plan({ glasses }: { glasses: boolean }) {
   const rondas = glasses ? 2 : 1;
-  const gestos = enrollChallenges.length * rondas;
   return (
     <ul className="plan">
       <li>
-        <strong>{rondas === 1 ? "1 ronda" : "2 rondas"}</strong> de {enrollChallenges.length} gestos
+        <strong>Sigue el punto</strong> alrededor del óvalo, como Face ID
         {glasses ? " — con lentes y sin ellos" : ""}
       </li>
       <li>
-        <strong>{gestos} capturas</strong> en total, unos {Math.round(gestos * 4)} segundos
+        <strong>{rondas === 1 ? "Una pasada" : "Dos pasadas"}</strong>, unos {rondas * 12} segundos.
+        El parpadeo se mira solo, en el mismo vídeo.
       </li>
-      <li>Si algo sale mal, se repite solo la ronda que falló</li>
+      <li>Este aparato guarda una clave, como SSH. La cara no viaja con la privada.</li>
     </ul>
   );
 }
@@ -201,6 +212,7 @@ export function App() {
   const [session, setSession] = useState<SessionState | null>(null);
   const [enrolled, setEnrolled] = useState<EnrollResult | null>(null);
   const [oidc, setOidc] = useState<OidcRequestInfo | null>(null);
+  const [pendingTrust, setPendingTrust] = useState<PendingTrust | null>(null);
 
   // Condiciones del enrollo en curso: una sola, o con lentes + sin lentes.
   const conditions: EnrollCondition[] = glasses ? GLASSES_CONDITIONS : SINGLE_CONDITION;
@@ -240,7 +252,49 @@ export function App() {
 
   function goHome() {
     setError("");
+    setPendingTrust(null);
     setMode("home");
+  }
+
+  async function identifyWithDevice(captures: Capture[], voice?: VoiceProof) {
+    let proof;
+    try {
+      proof = await deviceProof();
+    } catch {
+      proof = undefined;
+    }
+    return identify(bestLoginDescriptors(captures), captureShape(captures), proof, voice);
+  }
+
+  async function openSession(result: IdentifyResult) {
+    const { token, identity, ...stats } = result;
+    localStorage.setItem("facelogin.token", token);
+    if (result.trustedDevice) {
+      markDeviceTrustedLocally();
+      setSession({ token, identity, stats });
+      setMode("session");
+      return;
+    }
+    setPendingTrust({ token, identity, stats });
+    setMode("trust");
+  }
+
+  async function confirmTrust() {
+    if (!pendingTrust) return;
+    try {
+      const device = await ensureDevice();
+      await trustDevice(pendingTrust.token, device);
+      markDeviceTrustedLocally();
+    } catch {
+      /* entra igual; solo no queda recordado */
+    }
+    setSession({
+      token: pendingTrust.token,
+      identity: pendingTrust.identity,
+      stats: pendingTrust.stats,
+    });
+    setPendingTrust(null);
+    setMode("session");
   }
 
   /** Cancelar devuelve `access_denied` al cliente en vez de dejarlo esperando. */
@@ -268,7 +322,14 @@ export function App() {
             onError={setError}
             onCancel={goHome}
             onComplete={async (captures) => {
-              const result = await enroll(name, groupByCondition(captures));
+              let device;
+              try {
+                device = await ensureDevice();
+              } catch {
+                device = undefined;
+              }
+              const result = await enroll(name, groupByCondition(captures), captureShape(captures), device);
+              if (device) markDeviceTrustedLocally();
               setEnrolled(result);
               setMode("done");
             }}
@@ -285,15 +346,16 @@ export function App() {
           <FaceCapture
             title={oidc ? `Entrar en ${oidc.clientName}` : "Verificar tu identidad"}
             flow="login"
-            challenges={loginChallenges}
+            challenges={isDeviceTrustedLocally() ? trustedChallenges : loginChallenges}
             conditions={SINGLE_CONDITION}
             error={error}
+            forceVoice={!isDeviceTrustedLocally()}
             onError={setError}
             onCancel={() => void cancelOidc()}
-            onComplete={async (captures) => {
+            onComplete={async (captures, voice) => {
               // El descriptor va a /api/identify y se queda ahí. Lo que vuelve al
               // servicio cliente es un código, y luego un id_token firmado.
-              const { token } = await identify(bestLoginDescriptors(captures));
+              const { token } = await identifyWithDevice(captures, voice);
               const { redirect } = await oidcApprove(OIDC_REQUEST_ID, token);
               window.location.replace(redirect);
               // La navegación tarda un instante; sin esto la pantalla parpadea al
@@ -313,16 +375,15 @@ export function App() {
           <FaceCapture
             title="Entrar"
             flow="login"
-            challenges={loginChallenges}
+            challenges={isDeviceTrustedLocally() ? trustedChallenges : loginChallenges}
             conditions={SINGLE_CONDITION}
             error={error}
+            forceVoice={!isDeviceTrustedLocally()}
             onError={setError}
             onCancel={goHome}
-            onComplete={async (captures) => {
-              const { token, identity, ...stats } = await identify(bestLoginDescriptors(captures));
-              localStorage.setItem("facelogin.token", token);
-              setSession({ token, identity, stats });
-              setMode("session");
+            onComplete={async (captures, voice) => {
+              const result = await identifyWithDevice(captures, voice);
+              await openSession(result);
             }}
           />
         </Suspense>
@@ -562,6 +623,48 @@ export function App() {
         </Screen>
       )}
 
+      {mode === "trust" && pendingTrust && (
+        <Screen id="trust">
+          <span className="glyph" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none">
+              <path
+                d="M5 8h14v10a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V8Zm2-3h10l1 3H6l1-3Z"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </span>
+          <p className="eyebrow">Aparato nuevo</p>
+          <h1 className="display">¿Confiar siempre en este dispositivo?</h1>
+          <p className="body">
+            Es la primera vez que {pendingTrust.identity.displayName} entra desde aquí
+            {pendingTrust.stats.deviceLabel ? ` (${pendingTrust.stats.deviceLabel})` : ""}. Si
+            confías, la próxima vez no pedimos tanta guía: solo mirar al óvalo, como Face ID.
+            La clave se queda en este aparato; el servidor solo guarda la pública.
+          </p>
+          <div className="stack">
+            <button className="btn btn--primary" onClick={() => void confirmTrust()}>
+              Confiar siempre
+            </button>
+            <button
+              className="btn btn--quiet"
+              onClick={() => {
+                setSession({
+                  token: pendingTrust.token,
+                  identity: pendingTrust.identity,
+                  stats: pendingTrust.stats,
+                });
+                setPendingTrust(null);
+                setMode("session");
+              }}
+            >
+              Solo esta vez
+            </button>
+          </div>
+        </Screen>
+      )}
+
       {mode === "session" && session && (
         <Screen id="session">
           <span className="avatar" aria-hidden="true">
@@ -569,7 +672,11 @@ export function App() {
           </span>
           <p className="eyebrow">Sesión iniciada</p>
           <h1 className="display">{session.identity.displayName}</h1>
-          <p className="body">Entraste solo con tu rostro.</p>
+          <p className="body">
+            {isDeviceTrustedLocally()
+              ? "Este aparato es de confianza. La próxima vez basta con mirar."
+              : "Entraste con tu rostro."}
+          </p>
           <div className="stack">
             <button
               className="btn"

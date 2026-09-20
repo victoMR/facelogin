@@ -147,6 +147,7 @@ export function hasSensitiveKeys(obj: unknown): boolean {
   const sensitiveKeys = [
     "encryptedCentroid",
     "encryptedSamples",
+    "encryptedShape",
     "masterKey",
     "secret",
     "password",
@@ -157,6 +158,7 @@ export function hasSensitiveKeys(obj: unknown): boolean {
     "descriptor",
     "descriptors",
     "vector",
+    "publicKey",
   ];
 
   const keys = Object.keys(obj);

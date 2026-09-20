@@ -9,20 +9,33 @@ import {
   loadModels,
   photometryCostMs,
   poseAngles,
+  sampleGate,
   samplePhotometry,
   setDeviceProfile,
   trackLandmarks,
   variantCostMs,
 } from "./face";
 import {
+  lookingAtCamera,
+  opennessFromBlink,
+  shapeSignature,
+  trackMesh,
+  type FaceMesh,
+} from "./mesh";
+import {
   BlinkTracker,
   eyeSignal,
   eyesOpenForSample,
+  PlanarPad,
   poseMet,
+  poseMetYaw,
+  screenYaw,
   type ChallengeId,
   type EnrollCondition,
 } from "./liveness";
 import { modelLoadStats } from "./models";
+import { playCue, unlockCue } from "./feedback";
+import { applyView, Viewfinder, viewModeFor } from "./viewfinder";
 import {
   adjustProfile,
   degradation,
@@ -50,10 +63,19 @@ import {
   type QualityIssue,
   type QualityVerdict,
 } from "./quality";
-import { drawCapture, ovalGeometry, ovalPath, type Insets, type Lock } from "./overlay";
+import { drawCapture, glanceDots, ovalGeometry, ovalPath, type Insets, type Lock } from "./overlay";
+import { ApiError, voiceChallenge, type VoiceProof } from "./api";
+import { ENROLL_CAPTCHA_SCORE, humanConfidence, SpanTracker, WORD_MOUTH_SPAN, wordsHeard } from "./human";
+import { listenSpeech, openMicMeter, speechSupported } from "./voice";
 
 /** Una captura válida: los descriptores aumentados de un frame y su calidad. */
-export type Capture = { condition: string; descriptors: number[][]; quality: number };
+export type Capture = {
+  condition: string;
+  descriptors: number[][];
+  quality: number;
+  /** Firma 3D de la malla (64-d). No es una foto. */
+  shape?: number[];
+};
 
 export type ModelState = "idle" | "loading" | "ready" | "error";
 
@@ -69,10 +91,10 @@ export type Flow = "enroll" | "login";
  * que se acorta. No se tocó `liveness.ts` para no rozar el módulo medido.
  */
 const INSTRUCTIONS: Record<ChallengeId, string> = {
-  center: "Mira de frente",
-  blink: "Cierra los ojos y ábrelos",
-  left: "Gira la cabeza a la izquierda",
-  right: "Gira la cabeza a la derecha",
+  center: "Mira aquí",
+  blink: "Parpadea",
+  left: "Sigue el punto",
+  right: "Sigue el punto",
 };
 
 /*
@@ -102,7 +124,9 @@ const PROFILE_REVIEW_FRAMES = 10;
  * que el número dejó de ser un detalle interno y pasó a ser algo que el usuario
  * ve moverse.
  */
-const HOLD_FRAMES = 3;
+const ENROLL_HOLD_FRAMES = 3;
+/** En el login el hold corto + blink flojo dejaba pasar una foto en un segundo. */
+const LOGIN_HOLD_FRAMES = 10;
 
 /**
  * Cadencia de la fotometría, en frames.
@@ -141,6 +165,8 @@ export type CaptureStats = {
   resolution: string;
   modelMs: number;
   modelFromCache: number;
+  /** Zoom digital actual. 1 = frame entero; >1 la cámara “sigue” la cara. */
+  zoom: number;
 };
 
 const EMPTY_STATS: CaptureStats = {
@@ -159,6 +185,7 @@ const EMPTY_STATS: CaptureStats = {
   resolution: "—",
   modelMs: 0,
   modelFromCache: 0,
+  zoom: 1,
 };
 
 /**
@@ -190,6 +217,8 @@ type Recovery = {
   /** Índice de la condición a repetir, o `null` si no se puede acotar. */
   retryPhase: number | null;
   retryLabel: string;
+  /** No tiene sentido recapturar: la cara ya existe. */
+  leave?: boolean;
 };
 
 /**
@@ -249,7 +278,7 @@ function useElementSize<T extends HTMLElement>() {
 /**
  * Separación entre tramos, en unidades de `pathLength` (el óvalo mide 100).
  *
- * No es un porcentaje fijo del tramo: con dos gestos (el login) un hueco
+ * No es un porcentaje fijo del tramo: con pocos gestos un hueco
  * proporcional dejaría dos comas gigantes, y con diez (el enrollo con lentes) se
  * comería el tramo entero. Se acota a un rango donde el hueco siempre se lee
  * como separación y nunca como ausencia.
@@ -289,6 +318,7 @@ function ProgressRing({
   hold,
   state,
   pulse,
+  glance,
 }: {
   width: number;
   height: number;
@@ -301,9 +331,11 @@ function ProgressRing({
   hold: number;
   state: Lock;
   pulse: number;
+  glance?: ChallengeId;
 }) {
   if (width < 2 || height < 2) return null;
-  const path = ovalPath(ovalGeometry(width, height, insets));
+  const oval = ovalGeometry(width, height, insets);
+  const path = ovalPath(oval);
   const slots = Math.max(1, total);
   const slot = 100 / slots;
   const gap = segmentGap(slots);
@@ -344,9 +376,37 @@ function ProgressRing({
         );
       })}
       {pulse > 0 && <path key={pulse} className="ring__pulse" d={path} pathLength={100} />}
+      {glanceDots(oval).map((dot) => (
+        <circle
+          key={dot.id}
+          className="glance__dot"
+          cx={dot.x}
+          cy={dot.y}
+          r={glance === dot.id ? 7 : 4}
+          data-on={glance === dot.id || undefined}
+          data-done={
+            (dot.id === "center" && done > 0) ||
+            (dot.id === "left" && done > 1) ||
+            (dot.id === "right" && done > 2) ||
+            undefined
+          }
+        />
+      ))}
     </svg>
   );
 }
+
+type VoiceGate =
+  | { phase: "load" }
+  | {
+      phase: "speak";
+      id: string;
+      words: string[];
+      heard: boolean[];
+      mouths: number[];
+      transcript: string;
+    }
+  | { phase: "error"; message: string };
 
 export function FaceCapture({
   title,
@@ -354,6 +414,7 @@ export function FaceCapture({
   challenges,
   conditions,
   error,
+  forceVoice = false,
   onComplete,
   onError,
   onCancel,
@@ -364,7 +425,9 @@ export function FaceCapture({
   /** La secuencia de gestos se repite una vez por condición. */
   conditions: EnrollCondition[];
   error: string;
-  onComplete: (captures: Capture[]) => Promise<void>;
+  /** Aparato nuevo: el captcha de voz va sí o sí, no solo si la cara se ve rara. */
+  forceVoice?: boolean;
+  onComplete: (captures: Capture[], voice?: VoiceProof) => Promise<void>;
   onError: (message: string) => void;
   onCancel: () => void;
 }) {
@@ -382,8 +445,18 @@ export function FaceCapture({
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const frameRef = useRef<HTMLCanvasElement>(document.createElement("canvas"));
+  const viewFrameRef = useRef<HTMLCanvasElement>(document.createElement("canvas"));
+  const viewRef = useRef(new Viewfinder());
   const streamRef = useRef<MediaStream | null>(null);
   const blinkRef = useRef(new BlinkTracker());
+  const padRef = useRef(new PlanarPad());
+  const lastMeshRef = useRef<FaceMesh | null>(null);
+  const offFrontRef = useRef(0);
+  const seenBlinkRef = useRef(false);
+  const mouthRef = useRef(new SpanTracker());
+  const voiceRef = useRef(false);
+  const voiceProofRef = useRef<VoiceProof | undefined>(undefined);
+  const finishingVoiceRef = useRef(false);
   const capturesRef = useRef<Capture[]>([]);
   const holdRef = useRef(0);
   const pendingBlinkRef = useRef(false);
@@ -452,6 +525,7 @@ export function FaceCapture({
    * pasa, en vez de dejar un rectángulo negro eterno se pide el toque explícito.
    */
   const [needsTap, setNeedsTap] = useState(false);
+  const [voiceGate, setVoiceGate] = useState<VoiceGate | null>(null);
   const [stats, setStats] = useState<CaptureStats>(EMPTY_STATS);
   /** Espejo de `insets` para el bucle: leerlo del estado remontaría el efecto en
       cada cambio de texto, y el efecto arranca un `tick` nuevo cada vez. */
@@ -519,6 +593,7 @@ export function FaceCapture({
       resolution: streamResolution(streamRef.current),
       modelMs: Math.round(modelLoadStats().ms),
       modelFromCache: modelLoadStats().fromCache,
+      zoom: viewRef.current.scale,
     };
     statsRef.current = next;
     // Espejo para el banco de medición (`scripts/perf/`). Es solo lectura y son
@@ -603,6 +678,7 @@ export function FaceCapture({
           return;
         }
         streamRef.current = stream;
+        viewRef.current.reset();
         const video = videoRef.current;
         if (!video) return;
         video.srcObject = stream;
@@ -614,6 +690,7 @@ export function FaceCapture({
         if (cancelled) return;
         try {
           await video.play();
+          unlockCue();
           setNeedsTap(false);
         } catch (error) {
           if (error instanceof DOMException && error.name === "AbortError") return;
@@ -765,14 +842,41 @@ export function FaceCapture({
       // Se congela el frame ANTES de analizarlo. El liveness, el gate de calidad
       // y el descriptor tienen que hablar del mismo píxel: antes el descriptor
       // salía de una segunda detección sobre un frame posterior.
-      const frame = grabFrame(video, frameRef.current);
-      if (!frame) {
+      const full = grabFrame(video, frameRef.current);
+      if (!full) {
         schedule(profile.frameBudgetMs);
         return;
       }
 
+      const view = viewRef.current;
+      const mode = viewModeFor(current);
       const trackStart = performance.now();
-      const face = await trackLandmarks(frame);
+      // MediaPipe (478 + blendshapes) es síncrono y ve el cierre de ojos.
+      // face-api queda como reserva si la malla no cargó.
+      const mesh = trackMesh(full, frameStart);
+      lastMeshRef.current = mesh;
+      const tracked = mesh
+        ? {
+            box: mesh.box,
+            score: mesh.score,
+            landmarks: null,
+            framed: sampleGate(mesh.box, mesh.score, { width: full.width, height: full.height }, false),
+            quality: 1,
+          }
+        : await trackLandmarks(full);
+      const face = tracked;
+      const stage = { w: canvas.clientWidth, h: canvas.clientHeight };
+      view.follow(face?.box ?? null, full.width, full.height, mode, {
+        stageW: stage.w,
+        stageH: stage.h,
+        oval: ovalGeometry(stage.w, stage.h, insetsRef.current),
+      });
+      const viewed = applyView(full, viewFrameRef.current, view);
+      const zoomed = view.scale > 1.04;
+      const frame = zoomed ? viewed : full;
+      if (video.style.opacity !== (zoomed ? "0" : "1")) {
+        video.style.opacity = zoomed ? "0" : "1";
+      }
       const trackMs = performance.now() - trackStart;
       if (framesRef.current === 0) {
         // Tiempo hasta el PRIMER frame analizado, contado desde que se cargó el
@@ -795,7 +899,7 @@ export function FaceCapture({
         );
         say(INSTRUCTIONS[current]);
         setLockState("none");
-        drawCapture(canvas, video, null, "none", profile.maxDpr, insetsRef.current);
+        drawCapture(canvas, zoomed ? viewed : video, null, "none", profile.maxDpr, insetsRef.current, zoomed);
       } else {
         /*
          * Diagnóstico de calidad, la parte que antes no existía.
@@ -810,20 +914,64 @@ export function FaceCapture({
          * pantalla diría "gira la cabeza" arriba y "mira de frente" debajo.
          */
         if (framesRef.current % photoEvery(profile) === 0) {
-          photoRef.current = samplePhotometry(frame, face.box);
+          photoRef.current = samplePhotometry(full, face.box);
           publishMeters();
         }
-        const angles = poseAngles(face.landmarks);
+        const meshFace = mesh;
+        const angles = meshFace
+          ? { yaw: Math.abs(meshFace.yaw), roll: Math.abs(meshFace.roll) }
+          : face.landmarks
+            ? poseAngles(face.landmarks)
+            : { yaw: 0, roll: 0 };
+        const signal = meshFace
+          ? opennessFromBlink(meshFace.blinkLeft, meshFace.blinkRight)
+          : face.landmarks
+            ? eyeSignal(face.landmarks)
+            : { raw: 1, left: 1, right: 1 };
+        const screenYawValue = meshFace
+          ? meshFace.yaw
+          : face.landmarks
+            ? screenYaw(face.landmarks)
+            : 0;
+        const blinkLevel = meshFace ? (meshFace.blinkLeft + meshFace.blinkRight) / 2 : 1 - signal.raw;
+        padRef.current.feed(
+          meshFace?.pixels ?? face.landmarks?.positions ?? [],
+          screenYawValue,
+          signal.raw,
+          blinkLevel,
+          meshFace?.depthRelief ?? 1,
+        );
+        if (meshFace) mouthRef.current.feed(meshFace.mouth);
+        if (voiceRef.current) {
+          drawCapture(
+            canvas,
+            zoomed ? viewed : video,
+            face.landmarks,
+            "framed",
+            profile.maxDpr,
+            insetsRef.current,
+            zoomed,
+          );
+          setLockState("framed");
+          say("Di estas tres palabras");
+          const frameMs = performance.now() - frameStart;
+          latencyRef.current.push(frameMs);
+          publishStats(trackMs);
+          if (!cancelled && !busy) schedule(nextFrameDelay(frameMs, profile.frameBudgetMs));
+          return;
+        }
+        const photoAttack = flow === "login" && padRef.current.photoLikely();
         const signals = buildSignals({
           score: face.score,
           boxWidth: face.box.width,
           centerX: face.box.x + face.box.width / 2,
           centerY: face.box.y + face.box.height / 2,
-          frameWidth: frame.width,
-          frameHeight: frame.height,
+          frameWidth: full.width,
+          frameHeight: full.height,
           yaw: angles.yaw,
           roll: angles.roll,
           photo: photoRef.current,
+          photoLikely: photoAttack,
         });
         const raw = diagnose(signals, current === "center" || current === "blink" ? "frontal" : "perfil");
         publishVerdict(
@@ -831,49 +979,109 @@ export function FaceCapture({
           frameStart,
         );
 
-        const signal = eyeSignal(face.landmarks);
-        const blink = blinkRef.current.feed(signal.raw);
+        const yaw = Math.abs(screenYawValue);
+        const frontal = yaw < 0.22;
+        const looking = meshFace ? lookingAtCamera(meshFace) : frontal;
+        if ((current === "center" || current !== "blink") && looking) {
+          blinkRef.current.noteOpen(signal.raw, signal.left, signal.right);
+        }
+        if (current !== "blink" && frontal) {
+          const natural = blinkRef.current.feed(signal.raw, signal.left, signal.right, {
+            glasses: condition.id === "con-lentes",
+          });
+          if (natural === "blink" || natural === "closed") seenBlinkRef.current = true;
+        }
+        if (current === "blink" && frontal && looking && signal.raw >= 0.72) {
+          blinkRef.current.noteOpen(signal.raw, signal.left, signal.right);
+        }
+        const blink =
+          current === "blink" && frontal
+            ? blinkRef.current.feed(signal.raw, signal.left, signal.right, {
+                glasses: condition.id === "con-lentes" || Boolean(meshFace && signal.raw < 0.82),
+              })
+            : "open";
         const framed = face.framed;
         const nextLock: Lock =
-          blink === "closed" || blink === "blink" ? "blink" : framed ? "framed" : "track";
-        drawCapture(canvas, video, face.landmarks, nextLock, profile.maxDpr, insetsRef.current);
+          photoAttack ? "none" : blink === "closed" || blink === "blink" ? "blink" : framed ? "framed" : "track";
+        drawCapture(
+          canvas,
+          zoomed ? viewed : video,
+          face.landmarks,
+          nextLock,
+          profile.maxDpr,
+          insetsRef.current,
+          zoomed,
+        );
         setLockState(nextLock);
 
-        if (current === "blink") {
+        if (photoAttack) {
+          holdRef.current = 0;
           setHoldState(0);
-          if (blink === "closed") {
-            pendingBlinkRef.current = true;
-            say("Ahora ábrelos");
-          } else if (blink === "blink" || pendingBlinkRef.current) {
-            // Se espera a que el ojo vuelva a abrirse del todo: el frame del
-            // párpado a medio camino es el peor de la sesión.
-            if (eyesOpenForSample(blinkRef.current)) {
-              const shot = await extractDescriptors(frame, { relaxCenter: true });
-              if (shot) {
-                pendingBlinkRef.current = false;
-                recordExtraction(shot);
-                await takeSample(shot.descriptors, shot.quality);
-                return;
-              }
+          pendingBlinkRef.current = false;
+          say("Usa tu cara, no una foto");
+        } else if (current === "blink") {
+          setHoldState(0);
+          if (!frontal) {
+            offFrontRef.current += 1;
+            if (offFrontRef.current >= 4) {
+              blinkRef.current.clearCycle();
+              pendingBlinkRef.current = false;
             }
-            say("Abre bien los ojos");
+            say("Mira de frente y luego cierra los ojos");
+          } else if (meshFace && !looking && blink !== "closed" && !pendingBlinkRef.current) {
+            offFrontRef.current = 0;
+            say("Mira a la cámara y cierra los ojos");
+          } else if (blink === "closed") {
+            offFrontRef.current = 0;
+            pendingBlinkRef.current = true;
+            say("Bien. Ahora ábrelos");
+          } else if (blink === "blink") {
+            offFrontRef.current = 0;
+            pendingBlinkRef.current = true;
           } else {
-            say(INSTRUCTIONS.blink);
+            offFrontRef.current = 0;
           }
-        } else if (poseMet(current, face.landmarks)) {
+          if (
+            frontal &&
+            (blinkRef.current.won || pendingBlinkRef.current) &&
+            eyesOpenForSample(blinkRef.current)
+          ) {
+            const shot = await extractDescriptors(frame, { relaxCenter: true });
+            if (shot) {
+              pendingBlinkRef.current = false;
+              blinkRef.current.won = false;
+              recordExtraction(shot);
+              await takeSample(shot.descriptors, shot.quality);
+              return;
+            }
+            say("Ábrelos y quédate en el óvalo");
+          } else if (pendingBlinkRef.current) {
+            say(blinkRef.current.compressed ? "Mira de frente con los ojos abiertos" : "Ábrelos del todo");
+          } else if (frontal && looking) {
+            say(
+              blinkRef.current.compressed
+                ? "Cierra los dos ojos un segundo, aunque lleves lentes"
+                : INSTRUCTIONS.blink,
+            );
+          }
+        } else if (meshFace ? poseMetYaw(current, meshFace.yaw) : face.landmarks && poseMet(current, face.landmarks)) {
+          const holdNeeded = flow === "login" ? LOGIN_HOLD_FRAMES : ENROLL_HOLD_FRAMES;
           if (framed) {
             holdRef.current += 1;
-            // Durante el "hold" la instrucción no cambia —el anillo ya lo dice—
-            // pero el arco de espera sí avanza: son tres vueltas en las que
-            // antes no pasaba nada visible y la gente se movía justo entonces.
             say(INSTRUCTIONS[current]);
-            setHoldState(Math.min(1, holdRef.current / HOLD_FRAMES));
-            if (holdRef.current >= HOLD_FRAMES) {
-              const shot = await extractDescriptors(frame);
-              if (shot) {
-                recordExtraction(shot);
-                await takeSample(shot.descriptors, shot.quality);
-                return;
+            setHoldState(Math.min(1, holdRef.current / holdNeeded));
+            if (holdRef.current >= holdNeeded) {
+              if (flow === "login" && !seenBlinkRef.current && padRef.current.meanResidual < 0.35) {
+                say("Mueve un poco la cabeza");
+                holdRef.current = Math.max(0, holdNeeded - 2);
+                setHoldState(holdRef.current / holdNeeded);
+              } else {
+                const shot = await extractDescriptors(frame);
+                if (shot) {
+                  recordExtraction(shot);
+                  await takeSample(shot.descriptors, shot.quality);
+                  return;
+                }
               }
             }
           } else {
@@ -908,9 +1116,11 @@ export function FaceCapture({
     };
 
     async function takeSample(descriptors: number[][], quality: number) {
+      const mesh = lastMeshRef.current;
+      const shape = mesh ? shapeSignature(mesh.points, mesh.matrix) : undefined;
       capturesRef.current = [
         ...capturesRef.current,
-        { condition: condition.id, descriptors, quality },
+        { condition: condition.id, descriptors, quality, shape: shape?.length === 64 ? shape : undefined },
       ];
       setCaptured(capturesRef.current.length);
       setPulse((value) => value + 1);
@@ -918,10 +1128,12 @@ export function FaceCapture({
       setHold(0);
       holdRef.current = 0;
       pendingBlinkRef.current = false;
+      blinkRef.current.clearCycle();
       diagRef.current.reset();
       setSpeaking(false);
 
       if (step + 1 < challenges.length) {
+        playCue("step");
         setStep((value) => value + 1);
         setInstruction(INSTRUCTIONS[challenges[step + 1]]);
         // No se reprograma el bucle aquí: cambiar `step` remonta este efecto, y
@@ -936,16 +1148,42 @@ export function FaceCapture({
       // se para y se le pide al usuario que confirme el cambio.
       const rest = queue.slice(1);
       if (rest.length > 0) {
+        playCue("round");
         setQueue(rest);
         setStep(0);
         blinkRef.current = new BlinkTracker();
+        padRef.current = new PlanarPad();
         setHandoff(conditions[rest[0]]);
         return;
       }
 
+      const glanced = challenges.some((id) => id === "left" || id === "right");
+      const report = humanConfidence({
+        yawSpan: padRef.current.yawSpan,
+        blinkSpan: padRef.current.blinkSpan,
+        residual: padRef.current.meanResidual,
+        depthRelief: lastMeshRef.current?.depthRelief ?? 0,
+        seenBlink: seenBlinkRef.current,
+        mouthSpan: mouthRef.current.span,
+        frames: framesRef.current,
+        glanced,
+      });
+      const needVoice =
+        (flow === "login" && (forceVoice || report.captcha)) ||
+        (flow === "enroll" && report.score < ENROLL_CAPTCHA_SCORE);
+      if (needVoice && !voiceProofRef.current) {
+        playCue("step");
+        voiceRef.current = true;
+        finishingVoiceRef.current = false;
+        setVoiceGate({ phase: "load" });
+        setInstruction("Di estas tres palabras");
+        return;
+      }
+
+      playCue("done");
       setBusy(true);
       try {
-        await completeRef.current(capturesRef.current);
+        await completeRef.current(capturesRef.current, voiceProofRef.current);
       } catch (error) {
         /*
          * **Las capturas NO se tiran.**
@@ -957,6 +1195,14 @@ export function FaceCapture({
          * resto de capturas siguen en el ref.
          */
         setBusy(false);
+        if (error instanceof ApiError && error.code === "VOICE_REQUIRED") {
+          voiceProofRef.current = undefined;
+          finishingVoiceRef.current = false;
+          voiceRef.current = true;
+          setVoiceGate({ phase: "load" });
+          setInstruction("Di estas tres palabras");
+          return;
+        }
         setRecovery(planRecovery(error));
       }
     }
@@ -981,7 +1227,98 @@ export function FaceCapture({
     queue,
     handoff,
     recovery,
+    flow,
+    forceVoice,
   ]);
+
+  useEffect(() => {
+    if (voiceGate?.phase !== "load") return;
+    let cancelled = false;
+    void voiceChallenge()
+      .then((challenge) => {
+        if (cancelled) return;
+        if (!speechSupported()) {
+          setVoiceGate({
+            phase: "error",
+            message: "Este navegador no puede oírte. Prueba en Chrome o Safari.",
+          });
+          return;
+        }
+        setVoiceGate({
+          phase: "speak",
+          id: challenge.id,
+          words: challenge.words,
+          heard: challenge.words.map(() => false),
+          mouths: challenge.words.map(() => 0),
+          transcript: "",
+        });
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setVoiceGate({
+            phase: "error",
+            message: "No se pudo pedir el desafío de voz. Reintenta.",
+          });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [voiceGate?.phase === "load"]);
+
+  useEffect(() => {
+    if (voiceGate?.phase !== "speak") return;
+    const { id, words } = voiceGate;
+    const stopListen = listenSpeech(
+      (text) => {
+        setVoiceGate((previous) => {
+          if (!previous || previous.phase !== "speak" || previous.id !== id) return previous;
+          const detected = wordsHeard(text, words);
+          const span = mouthRef.current.windowSpan(24);
+          const heard = previous.heard.map((ok, index) => ok || (detected[index] && span >= WORD_MOUTH_SPAN));
+          const mouths = previous.mouths.map((value, index) =>
+            heard[index] && !previous.heard[index] ? span : value,
+          );
+          return { ...previous, heard, mouths, transcript: text };
+        });
+      },
+      (message) => setVoiceGate({ phase: "error", message }),
+    );
+    let meterStop: (() => void) | undefined;
+    void openMicMeter().then(
+      (meter) => {
+        meterStop = meter.stop;
+      },
+      () => undefined,
+    );
+    return () => {
+      stopListen();
+      meterStop?.();
+    };
+  }, [voiceGate?.phase === "speak" ? voiceGate.id : ""]);
+
+  useEffect(() => {
+    if (voiceGate?.phase !== "speak") return;
+    if (!voiceGate.heard.every(Boolean) || finishingVoiceRef.current) return;
+    finishingVoiceRef.current = true;
+    const proof: VoiceProof = { id: voiceGate.id, transcript: voiceGate.transcript };
+    voiceProofRef.current = proof;
+    voiceRef.current = false;
+    playCue("done");
+    setBusy(true);
+    setVoiceGate(null);
+    void completeRef.current(capturesRef.current, proof).catch((error: unknown) => {
+      setBusy(false);
+      if (error instanceof ApiError && error.code === "VOICE_REQUIRED") {
+        voiceProofRef.current = undefined;
+        finishingVoiceRef.current = false;
+        voiceRef.current = true;
+        setVoiceGate({ phase: "load" });
+        return;
+      }
+      setRecovery(planRecovery(error));
+    });
+  }, [voiceGate]);
 
   /**
    * Traduce el fallo del servidor a algo que se pueda hacer.
@@ -1016,6 +1353,17 @@ export function FaceCapture({
         raw,
         retryPhase: 0,
         retryLabel: "Intentar otra vez",
+      };
+    }
+
+    if (status === 409) {
+      return {
+        title: "Esta cara ya está registrada",
+        detail: "Ya hay una cuenta con este rostro. Entra con tu cara en vez de crear otra.",
+        raw,
+        retryPhase: null,
+        retryLabel: "Ir a entrar",
+        leave: true,
       };
     }
 
@@ -1084,6 +1432,7 @@ export function FaceCapture({
     holdRef.current = 0;
     pendingBlinkRef.current = false;
     blinkRef.current = new BlinkTracker();
+    padRef.current = new PlanarPad();
     diagRef.current.reset();
     setVerdict(OK);
     setSpeaking(false);
@@ -1103,6 +1452,8 @@ export function FaceCapture({
     holdRef.current = 0;
     pendingBlinkRef.current = false;
     blinkRef.current = new BlinkTracker();
+    padRef.current = new PlanarPad();
+    viewRef.current.reset();
     diagRef.current.reset();
     setVerdict(OK);
     setSpeaking(false);
@@ -1178,8 +1529,16 @@ export function FaceCapture({
    * sigue existiendo, íntegro, en la región `aria-live`, que es donde hace falta
    * ser más explícito porque no hay óvalo que mirar.
    */
-  const blocking = speaking && verdict.blocking && verdict.issue !== "ninguno";
-  const headline = blocking ? verdict.message : instruction;
+  const blocking = speaking && verdict.blocking && verdict.issue !== "ninguno" && !voiceGate;
+  const headline = voiceGate
+    ? voiceGate.phase === "error"
+      ? voiceGate.message
+      : voiceGate.phase === "load"
+        ? "Un momento…"
+        : "Di estas tres palabras, bien marcadas"
+    : blocking
+      ? verdict.message
+      : instruction;
 
   /*
    * Lo que se DICE es más que lo que se pinta, a propósito.
@@ -1236,8 +1595,37 @@ export function FaceCapture({
           hold={hold}
           state={ringState}
           pulse={pulse}
+          glance={current}
         />
         <div className="capture__scrim" aria-hidden="true" />
+        {voiceGate && (
+          <div className="voice" role="status" aria-live="polite">
+            {voiceGate.phase === "speak" && (
+              <ul className="voice__words">
+                {voiceGate.words.map((word, index) => (
+                  <li key={word} className="voice__word" data-ok={voiceGate.heard[index] || undefined}>
+                    {word}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {voiceGate.phase === "load" && <p className="voice__hint">Preparando el reto…</p>}
+            {voiceGate.phase === "speak" && (
+              <p className="voice__hint">Pronúncialas con la boca bien abierta. Te oímos y te vemos.</p>
+            )}
+            {voiceGate.phase === "error" && (
+              <button
+                className="btn btn--primary"
+                onClick={() => {
+                  finishingVoiceRef.current = false;
+                  setVoiceGate({ phase: "load" });
+                }}
+              >
+                Reintentar
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/*
@@ -1319,7 +1707,7 @@ export function FaceCapture({
             </p>
             <p>
               perfil {stats.profile} · {stats.backend} · {stats.fps.toFixed(1)} fps ·{" "}
-              {stats.resolution}
+              {stats.resolution} · zoom {stats.zoom.toFixed(1)}×
             </p>
             <p>
               frame {stats.frameMs.toFixed(0)} ms (seguimiento {stats.trackMs.toFixed(0)} ms) ·
@@ -1352,6 +1740,7 @@ export function FaceCapture({
               className="btn btn--primary"
               autoFocus
               onClick={() => {
+                unlockCue();
                 void videoRef.current?.play().then(
                   () => setNeedsTap(false),
                   () => errorRef.current("No se pudo iniciar el vídeo de la cámara."),
@@ -1425,9 +1814,11 @@ export function FaceCapture({
             <button
               className="btn btn--primary"
               autoFocus
-              onClick={() =>
-                recovery.retryPhase === null ? retryAll() : retryPhase(recovery.retryPhase)
-              }
+              onClick={() => {
+                if (recovery.leave) onCancel();
+                else if (recovery.retryPhase === null) retryAll();
+                else retryPhase(recovery.retryPhase);
+              }}
             >
               {recovery.retryLabel}
             </button>

@@ -802,6 +802,20 @@ input {
 
 /* Cuando la causa BLOQUEA, el titular ya no es el gesto sino el arreglo. Se
    marca con color, pero el color no es el mensaje: el texto ya cambió. */
+.glance__dot {
+  fill: rgba(255, 255, 255, 0.35);
+  stroke: none;
+}
+
+.glance__dot[data-on] {
+  fill: #fff;
+  filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.85));
+}
+
+.glance__dot[data-done] {
+  fill: var(--ring-shot);
+}
+
 .capture__instruction[data-blocking] {
   color: var(--coach-warn);
 }
@@ -910,6 +924,65 @@ input {
 }
 
 /* --- Capa modal sobre la cámara -------------------------------------------- */
+
+.voice {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: 18%;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.voice .btn {
+  pointer-events: auto;
+  width: min(100%, 16rem);
+}
+
+.voice__words {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  width: min(100%, 22rem);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.voice__word {
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.58);
+  color: #fff;
+  font-size: clamp(20px, 5.2vw, 28px);
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+  text-align: center;
+  text-wrap: balance;
+}
+
+.voice__word[data-ok] {
+  background: rgba(48, 209, 88, 0.88);
+  color: #04210c;
+}
+
+.voice__hint {
+  margin: 0;
+  max-width: 22rem;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.45);
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 13px;
+  line-height: 1.35;
+  text-align: center;
+  text-wrap: pretty;
+}
 
 .overlay {
   position: absolute;

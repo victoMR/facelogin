@@ -142,6 +142,15 @@ export function ovalGeometry(width: number, height: number, insets: Insets = NO_
  * progreso tiene que empezar a llenarse desde arriba. Con dos arcos se controla
  * el punto de partida sin rotar nada (rotar una elipse intercambiaría los ejes).
  */
+/** Puntos alrededor del óvalo: a dónde mirar, como Face ID. */
+export function glanceDots(oval: Oval): { id: "center" | "left" | "right"; x: number; y: number }[] {
+  return [
+    { id: "center", x: oval.cx, y: oval.cy - oval.ry - 20 },
+    { id: "left", x: oval.cx - oval.rx - 20, y: oval.cy },
+    { id: "right", x: oval.cx + oval.rx + 20, y: oval.cy },
+  ];
+}
+
 export function ovalPath({ cx, cy, rx, ry }: Oval): string {
   return `M ${cx} ${cy - ry} A ${rx} ${ry} 0 1 1 ${cx} ${cy + ry} A ${rx} ${ry} 0 1 1 ${cx} ${cy - ry}`;
 }
@@ -151,14 +160,23 @@ export function ovalPath({ cx, cy, rx, ry }: Oval): string {
  * progreso en SVG, que además de marcar el borde muestra cuánto falta. Dos
  * contornos superpuestos se veían sucios y no podían coincidir en grosor.
  *
- * Y **la malla tampoco se pinta**, salvo con `setMeshDebug(true)`. Eso deja el
- * frame en un solo `fill("evenodd")` sobre el rectángulo entero: en un móvil
- * con DPR 3 se ahorran los 68 puntos mapeados y las nueve polilíneas de cada
- * vuelta del bucle.
+ * Y **la malla tampoco se pinta**, salvo con `setMeshDebug(true)`. El coste que
+ * sí se paga ahora es el `drawImage` del recorte (el viewfinder sigue la cara);
+ * los 68 puntos y las polilíneas siguen fuera del bundle normal.
  */
+function sourceSize(source: HTMLVideoElement | HTMLCanvasElement): { w: number; h: number } {
+  return source instanceof HTMLVideoElement
+    ? { w: source.videoWidth, h: source.videoHeight }
+    : { w: source.width, h: source.height };
+}
+
 export function drawCapture(
   canvas: HTMLCanvasElement,
-  video: HTMLVideoElement,
+  /**
+   * Píxeles que se ven dentro del óvalo. Puede ser el vídeo crudo o el recorte
+   * del viewfinder: el anillo no se mueve; cambia lo que hay debajo.
+   */
+  source: HTMLVideoElement | HTMLCanvasElement,
   landmarks: FaceLandmarks68 | null,
   lock: Lock,
   /**
@@ -174,6 +192,11 @@ export function drawCapture(
   maxDpr = 2,
   /** Cabecera y pie ya ocupados. El óvalo se centra en lo que queda. */
   insets: Insets = NO_INSETS,
+  /**
+   * Si es false, solo se pinta la viñeta y se ve el `<video>` debajo.
+   * El blit del recorte solo hace falta cuando hay zoom digital.
+   */
+  paintSource = true,
 ): void {
   const dpr = Math.min(window.devicePixelRatio || 1, maxDpr);
   const width = canvas.clientWidth;
@@ -189,6 +212,14 @@ export function drawCapture(
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, width, height);
 
+  const src = sourceSize(source);
+  if (paintSource && src.w >= 8 && src.h >= 8) {
+    const cover = Math.max(width / src.w, height / src.h);
+    const dw = src.w * cover;
+    const dh = src.h * cover;
+    ctx.drawImage(source, (width - dw) / 2, (height - dh) / 2, dw, dh);
+  }
+
   const { cx, cy, rx, ry } = ovalGeometry(width, height, insets);
 
   // Todo lo que queda fuera del óvalo se oscurece. Cumple dos funciones: dirige
@@ -202,11 +233,9 @@ export function drawCapture(
   ctx.fill("evenodd");
   ctx.restore();
 
-  if (!mesh || !landmarks || video.videoWidth < 8) return;
+  if (!mesh || !landmarks || src.w < 8) return;
 
-  const points = landmarks.positions.map((point) =>
-    mapPoint(point, video.videoWidth, video.videoHeight, width, height),
-  );
+  const points = landmarks.positions.map((point) => mapPoint(point, src.w, src.h, width, height));
 
   // Solo con `setMeshDebug(true)`. Ya no es acuse de recibo para nadie: es el
   // diagrama con el que se calibran `poseAngles` y `eyeSignal`.

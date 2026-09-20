@@ -2,6 +2,12 @@ import { timingSafeEqual } from "node:crypto";
 import { Router, type Request } from "express";
 import { z } from "zod";
 import { issueChallenge, validateChallengeResponse } from "./challenge.js";
+import {
+  consumeDeviceNonce,
+  deviceKnown,
+  issueDeviceNonce,
+  verifyDeviceSignature,
+} from "./devices.js";
 import type { FaceEngine } from "./engine.js";
 import {
   handleCanaryAccess,
@@ -16,8 +22,19 @@ import {
   sanitizeErrorMessage,
 } from "./redact.js";
 import { readSession, signSession } from "./session.js";
+import { consumeVoiceChallenge, issueVoiceChallenge } from "./words.js";
 
 const vectorSchema = z.array(z.number().finite()).length(128);
+const shapeSchema = z.array(z.number().finite()).length(64).optional();
+const deviceKeySchema = z.object({
+  id: z.string().trim().min(8).max(128),
+  publicKey: z.string().trim().min(80).max(400),
+  label: z.string().trim().min(1).max(64).optional(),
+});
+const deviceProofSchema = deviceKeySchema.extend({
+  signature: z.string().trim().min(16).max(400),
+  nonce: z.string().trim().min(8).max(128),
+});
 
 /**
  * El tope por condición sube de 10 a 40: con augmentación sobre el frame, cada
@@ -37,6 +54,8 @@ const enrollSchema = z
     displayName: z.string().trim().min(2).max(64),
     samples: z.array(vectorSchema).min(4).max(40).optional(),
     conditions: z.array(conditionSchema).min(1).max(4).optional(),
+    shape: shapeSchema,
+    device: deviceKeySchema.optional(),
   })
   .refine((body) => Boolean(body.samples) !== Boolean(body.conditions), {
     message: "Manda `samples` o `conditions`, no ambos.",
@@ -47,12 +66,20 @@ const enrollSchema = z
  * intento). El servidor se queda con el mejor y aplica la penalización
  * multi-probe; ver `multiProbePenalty`.
  */
+const voiceProofSchema = z.object({
+  id: z.string().trim().min(8).max(128),
+  transcript: z.string().trim().min(3).max(400),
+});
+
 const identifySchema = z
   .object({
     descriptor: vectorSchema.optional(),
     descriptors: z.array(vectorSchema).min(1).max(8).optional(),
+    shape: shapeSchema,
+    device: deviceProofSchema.optional(),
     challenge: z.string().optional(),
     challengeHmac: z.string().optional(),
+    voice: voiceProofSchema.optional(),
   })
   .refine((body) => Boolean(body.descriptor) !== Boolean(body.descriptors), {
     message: "Manda `descriptor` o `descriptors`, no ambos.",
@@ -131,6 +158,14 @@ export function createRouter(engine: FaceEngine, sessionSecret: string): Router 
     res.json({ ok: true, mode: "face-only" });
   });
 
+  router.get("/voice/challenge", (req, res) => {
+    if (!rateLimit("voice", req.ip ?? "local", 12, 60_000)) {
+      res.status(429).json({ error: "Demasiados desafíos de voz. Espera un momento." });
+      return;
+    }
+    res.json(issueVoiceChallenge());
+  });
+
   router.get("/challenge", (req, res) => {
     const ip = req.ip ?? "local";
     const result = issueChallenge(ip);
@@ -171,7 +206,12 @@ export function createRouter(engine: FaceEngine, sessionSecret: string): Router 
     }
     try {
       const input = parsed.data.conditions ?? (parsed.data.samples as number[][]);
-      const template = engine.enroll(parsed.data.displayName, input);
+      const template = engine.enroll(
+        parsed.data.displayName,
+        input,
+        parsed.data.shape,
+        parsed.data.device,
+      );
       const safeResponse = redactEnrollResponse(template);
       res.json(safeResponse);
     } catch (error) {
@@ -223,7 +263,7 @@ export function createRouter(engine: FaceEngine, sessionSecret: string): Router 
 
     try {
       const probes = parsed.data.descriptors ?? [parsed.data.descriptor as number[]];
-      const decision = engine.identify(probes);
+      const decision = engine.identify(probes, parsed.data.shape);
 
       if (decision.identityId && isHoneypot(decision.identityId)) {
         handleHoneypotTrigger(decision.identityId, ip);
@@ -246,6 +286,30 @@ export function createRouter(engine: FaceEngine, sessionSecret: string): Router 
         name: decision.displayName,
       });
 
+      const proof = parsed.data.device;
+      const known = deviceKnown(engine.listDevices(decision.identityId), proof?.id ?? "");
+      const signed =
+        Boolean(
+          proof &&
+            consumeDeviceNonce(proof.nonce) &&
+            verifyDeviceSignature(known?.publicKey ?? proof.publicKey, proof.nonce, proof.signature),
+        );
+      const trustedDevice = Boolean(known && signed);
+      const voice = parsed.data.voice;
+      const voiceOk = Boolean(voice && consumeVoiceChallenge(voice.id, voice.transcript));
+      if (!trustedDevice && !voiceOk) {
+        res.status(403).json({
+          error: "Di las tres palabras para confirmar que eres tú.",
+          code: "VOICE_REQUIRED",
+        });
+        return;
+      }
+      if (voice && !voiceOk) {
+        res.status(401).json({ error: "Las palabras no coinciden." });
+        return;
+      }
+      if (trustedDevice && proof) engine.touchDevice(decision.identityId, proof.id);
+
       res.json({
         token,
         identity: {
@@ -258,12 +322,82 @@ export function createRouter(engine: FaceEngine, sessionSecret: string): Router 
         latencyMs: decision.latencyMs,
         reason: decision.reason,
         condition: decision.condition,
+        trustedDevice,
+        newDevice: !trustedDevice,
+        deviceLabel: known?.label ?? proof?.label ?? null,
       });
     } catch (error) {
       const status = typeof error === "object" && error && "status" in error ? Number(error.status) : 500;
       const rawMessage = error instanceof Error ? error.message : "No se pudo identificar.";
       const message = sanitizeErrorMessage(rawMessage);
       res.status(status).json({ error: message });
+    }
+  });
+
+  router.get("/device/challenge", (req, res) => {
+    if (!rateLimit("device-nonce", req.ip ?? "local", 20, 60_000)) {
+      res.status(429).json({ error: "Demasiados desafíos. Espera un momento." });
+      return;
+    }
+    res.json({ nonce: issueDeviceNonce() });
+  });
+
+  router.post("/device/trust", async (req, res) => {
+    const token = bearerToken(req);
+    if (!token) {
+      res.status(401).json({ error: "Sesión ausente." });
+      return;
+    }
+    const parsed = deviceKeySchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Clave del aparato inválida." });
+      return;
+    }
+    try {
+      const session = await readSession(sessionSecret, token);
+      const device = engine.trustDevice(session.sub, parsed.data);
+      res.json({ id: device.id, label: device.label, trusted: true });
+    } catch (error) {
+      const status = typeof error === "object" && error && "status" in error ? Number(error.status) : 401;
+      res.status(status).json({
+        error: error instanceof Error ? sanitizeErrorMessage(error.message) : "No se pudo confiar.",
+      });
+    }
+  });
+
+  router.get("/devices", async (req, res) => {
+    const token = bearerToken(req);
+    if (!token) {
+      res.status(401).json({ error: "Sesión ausente." });
+      return;
+    }
+    try {
+      const session = await readSession(sessionSecret, token);
+      res.json({
+        devices: engine.listDevices(session.sub).map((device) => ({
+          id: device.id,
+          label: device.label,
+          trustedAt: device.trustedAt,
+          lastSeenAt: device.lastSeenAt,
+        })),
+      });
+    } catch {
+      res.status(401).json({ error: "Sesión inválida o caducada." });
+    }
+  });
+
+  router.delete("/devices/:id", async (req, res) => {
+    const token = bearerToken(req);
+    if (!token) {
+      res.status(401).json({ error: "Sesión ausente." });
+      return;
+    }
+    try {
+      const session = await readSession(sessionSecret, token);
+      engine.revokeDevice(session.sub, String(req.params.id));
+      res.json({ ok: true });
+    } catch {
+      res.status(401).json({ error: "Sesión inválida o caducada." });
     }
   });
 

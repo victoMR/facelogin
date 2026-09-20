@@ -20,6 +20,7 @@ backend/config/clients.json
 # huella con la que se verifican, y es lo que sustituye al SRI que no había.
 frontend/public/models/
 frontend/public/tfjs/
+frontend/public/mediapipe/
 frontend/dist-perf/
 scripts/perf/resultados/
 

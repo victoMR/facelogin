@@ -65,6 +65,8 @@ export type FrameSignals = {
   /** Roll absoluto en radianes. */
   roll: number;
   photo: Photometry | null;
+  /** `true` si el movimiento de landmarks parece un plano (foto/pantalla). */
+  photoLikely: boolean;
 };
 
 /**
@@ -84,6 +86,7 @@ export function buildSignals(input: {
   yaw: number;
   roll: number;
   photo: Photometry | null;
+  photoLikely?: boolean;
 }): FrameSignals {
   const short = Math.max(1, Math.min(input.frameWidth, input.frameHeight));
   const offsetX = Math.abs(input.centerX - input.frameWidth / 2) / Math.max(1, input.frameWidth);
@@ -96,6 +99,7 @@ export function buildSignals(input: {
     yaw: Math.abs(input.yaw),
     roll: Math.abs(input.roll),
     photo: input.photo,
+    photoLikely: input.photoLikely === true,
   };
 }
 
@@ -108,6 +112,7 @@ export const NO_FACE: FrameSignals = {
   yaw: 0,
   roll: 0,
   photo: null,
+  photoLikely: false,
 };
 
 export type QualityIssue =
@@ -122,6 +127,7 @@ export type QualityIssue =
   | "girado"
   | "inclinado"
   | "movido"
+  | "foto"
   | "dudosa";
 
 export type QualityVerdict = {
@@ -234,6 +240,7 @@ export const LOW_SCORE = 0.62;
  */
 const PRIORITY: Record<Exclude<QualityIssue, "ninguno">, number> = {
   "sin-cara": 10,
+  foto: 9,
   fuera: 6,
   lejos: 4,
   cerca: 3.4,
@@ -286,6 +293,10 @@ const TEXT: Record<Exclude<QualityIssue, "ninguno">, { message: string; hint: st
   movido: {
     message: "Quédate quieto",
     hint: "La imagen sale movida; apoya el teléfono o para un segundo.",
+  },
+  foto: {
+    message: "Eso parece una foto",
+    hint: "Pon tu cara delante de la cámara. Una imagen impresa o en pantalla no sirve.",
   },
   dudosa: {
     message: "No acabamos de verte bien",
@@ -346,6 +357,8 @@ export function diagnose(
     add("movido", (BLUR_LIMIT - photo.sharpness) / BLUR_LIMIT);
   }
 
+  if (signals.photoLikely) add("foto", 1);
+
   add("dudosa", (LOW_SCORE - signals.score) / LOW_SCORE);
 
   let best: QualityVerdict | null = null;
@@ -378,6 +391,7 @@ export function diagnose(
  * original.
  */
 export function resolveBlocking(v: QualityVerdict, framed: boolean): QualityVerdict {
+  if (v.issue === "foto") return { ...v, blocking: true };
   if (framed) return v.blocking ? { ...v, blocking: false } : v;
   if (v.issue === "ninguno") return { ...verdict("dudosa", 0.5), blocking: true };
   return { ...v, blocking: true };

@@ -29,7 +29,13 @@ export type IdentifyResult = {
   reason: string;
   /** Sub-cluster que ganó el match ("con-lentes", "sin-lentes", "default"). */
   condition: string | null;
+  trustedDevice?: boolean;
+  newDevice?: boolean;
+  deviceLabel?: string | null;
 };
+
+export type DeviceInfo = { id: string; publicKey: string; label: string };
+export type DeviceProof = DeviceInfo & { signature: string; nonce: string };
 
 /**
  * Error de la API con su código HTTP.
@@ -48,6 +54,7 @@ export class ApiError extends Error {
   constructor(
     message: string,
     readonly status: number,
+    readonly code?: string,
   ) {
     super(message);
     this.name = "ApiError";
@@ -62,11 +69,18 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       ...(init?.headers ?? {}),
     },
   });
-  const body = (await response.json().catch(() => ({}))) as T & { error?: string };
+  const body = (await response.json().catch(() => ({}))) as T & { error?: string; code?: string };
   if (!response.ok) {
-    throw new ApiError(body.error ?? "Error de red", response.status);
+    throw new ApiError(body.error ?? "Error de red", response.status, body.code);
   }
   return body;
+}
+
+export type VoiceChallenge = { id: string; words: string[]; expiresAt: number };
+export type VoiceProof = { id: string; transcript: string };
+
+export function voiceChallenge(): Promise<VoiceChallenge> {
+  return request("/api/voice/challenge");
 }
 
 export type ConditionSamples = { label: string; samples: number[][] };
@@ -76,10 +90,15 @@ export type ConditionSamples = { label: string; samples: number[][] };
  * servidor mide la coherencia por condición y guarda un centroide por cada una.
  * Promediarlas aquí en un solo vector dejaría el centroide en tierra de nadie.
  */
-export function enroll(displayName: string, conditions: ConditionSamples[]): Promise<EnrollResult> {
+export function enroll(
+  displayName: string,
+  conditions: ConditionSamples[],
+  shape?: number[],
+  device?: DeviceInfo,
+): Promise<EnrollResult> {
   return request("/api/enroll", {
     method: "POST",
-    body: JSON.stringify({ displayName, conditions }),
+    body: JSON.stringify({ displayName, conditions, shape, device }),
   });
 }
 
@@ -91,10 +110,36 @@ export function enroll(displayName: string, conditions: ConditionSamples[]): Pro
  */
 export const MAX_LOGIN_DESCRIPTORS = 3;
 
-export function identify(descriptors: number[][]): Promise<IdentifyResult> {
+export function identify(
+  descriptors: number[][],
+  shape?: number[],
+  device?: DeviceProof,
+  voice?: VoiceProof,
+): Promise<IdentifyResult> {
   return request("/api/identify", {
     method: "POST",
-    body: JSON.stringify({ descriptors: descriptors.slice(0, MAX_LOGIN_DESCRIPTORS) }),
+    body: JSON.stringify({
+      descriptors: descriptors.slice(0, MAX_LOGIN_DESCRIPTORS),
+      shape,
+      device,
+      voice,
+    }),
+  });
+}
+
+export function trustDevice(token: string, device: DeviceInfo): Promise<{ id: string; label: string; trusted: boolean }> {
+  return request("/api/device/trust", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(device),
+  });
+}
+
+export function listDevices(
+  token: string,
+): Promise<{ devices: { id: string; label: string; trustedAt: string; lastSeenAt: string }[] }> {
+  return request("/api/devices", {
+    headers: { Authorization: `Bearer ${token}` },
   });
 }
 
