@@ -1,5 +1,5 @@
 # facelogin
-**La foto no viaja.**
+\n[![CI](https://github.com/victoMR/facelogin/actions/workflows/ci.yml/badge.svg)](https://github.com/victoMR/facelogin/actions/workflows/ci.yml)\n\n**La foto no viaja.**
 
 Autenticación solo con tu cara. Sin contraseña.
 El navegador saca un descriptor; el servidor guarda una plantilla cifrada.
