@@ -83,7 +83,8 @@ El `transcript` de voz no autoriza el JWT. El HMAC challenge del descriptor sigu
 
 ## Tests
 
-- ✅ 135 tests unitarios pasan (backend + frontend)
+- ✅ Tests unitarios de backend y frontend
+- ✅ `GET /api/identities` no publica nombres; `DELETE` exige `FACELOGIN_ADMIN_TOKEN`
 - ✅ Tests de regresión enroll→identify confirman que funciona
 - ✅ Tests de honeypots, challenge y redact cubren esos módulos
 - ✅ Tests de FAR/FRR y FPIR con vectores sintéticos pasan

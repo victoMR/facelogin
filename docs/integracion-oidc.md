@@ -155,14 +155,14 @@ Fijar `algorithms` no es cosmético: sin ello un token con `alg: "none"` o con u
   "iat": 1788075447,
   "auth_time": 1788075432,
   "nonce": "n-abc",
-  "amr": ["face"],
+  "amr": ["face", "hwk"],
   "name": "Ana Prueba"
 }
 ```
 
 - `name` solo aparece con el scope `profile`.
 - `auth_time` es cuándo se verificó la cara de verdad, no cuándo se firmó el token. Úsalo si tu operación necesita frescura.
-- `amr: ["face"]` dice con qué se autenticó. Aquí siempre es la cara: **no hay segundo factor**.
+- `amr` distingue el factor vinculante: `["face", "hwk"]` si firmó el aparato de confianza, `["face", "passkey"]` si usó WebAuthn.
 
 ### `sub` pairwise
 

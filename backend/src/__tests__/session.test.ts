@@ -59,6 +59,16 @@ test("signSession usa HS256", async () => {
   assert.equal(header.alg, "HS256");
 });
 
+test("signSession incluye amr de cara y factor vinculante", async () => {
+  const token = await signSession(SECRET, {
+    sub: "user-123",
+    name: "Test",
+    amr: ["face", "hwk"],
+  });
+  const session = await readSession(SECRET, token);
+  assert.deepEqual(session.amr, ["face", "hwk"]);
+});
+
 test("signSession incluye iss, aud y jti", async () => {
   const token = await signSession(SECRET, { sub: "user-123", name: "Test" });
   const session = await readSession(SECRET, token);

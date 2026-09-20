@@ -31,6 +31,8 @@ function mergeEnv(existing: string, values: Record<string, string>): string {
 type Secrets = {
   masterKey: string;
   sessionSecret: string;
+  /** HMAC de cubetas LSH. Independiente de la sesión: rotarla obliga a reconstruir el índice. */
+  lshHmacKey: string;
   /** Privada RS256 del IdP, DER PKCS#8 en base64. Lista separada por comas al rotar. */
   oidcPrivateKey: string;
   /** Sal del HMAC que deriva el `sub` pairwise. Rotarla re-identifica a todos. */
@@ -47,18 +49,21 @@ function ensureEnv(): Secrets {
   const current: Record<keyof Secrets, string | undefined> = {
     masterKey: process.env.FACELOGIN_MASTER_KEY,
     sessionSecret: process.env.FACELOGIN_SESSION_SECRET,
+    lshHmacKey: process.env.FACELOGIN_LSH_HMAC_KEY,
     oidcPrivateKey: process.env.FACELOGIN_OIDC_PRIVATE_KEY,
     oidcPairwiseSalt: process.env.FACELOGIN_OIDC_PAIRWISE_SALT,
   };
   const envNames: Record<keyof Secrets, string> = {
     masterKey: "FACELOGIN_MASTER_KEY",
     sessionSecret: "FACELOGIN_SESSION_SECRET",
+    lshHmacKey: "FACELOGIN_LSH_HMAC_KEY",
     oidcPrivateKey: "FACELOGIN_OIDC_PRIVATE_KEY",
     oidcPairwiseSalt: "FACELOGIN_OIDC_PAIRWISE_SALT",
   };
   const generators: Record<keyof Secrets, () => string> = {
     masterKey: randomSecret,
     sessionSecret: randomSecret,
+    lshHmacKey: randomSecret,
     oidcPrivateKey: generatePrivateKeyMaterial,
     oidcPairwiseSalt: randomSecret,
   };
@@ -115,13 +120,18 @@ async function bootstrap(): Promise<void> {
         "Cualquiera con acceso a la API puede dar de alta una identidad.",
     );
   }
+  if (!process.env.FACELOGIN_ADMIN_TOKEN) {
+    console.warn(
+      "[facelogin] FACELOGIN_ADMIN_TOKEN no está definido: DELETE /api/identities queda CERRADO.",
+    );
+  }
   if (issuer.startsWith("http://") && !/^https?:\/\/(localhost|127\.0\.0\.1)/.test(issuer)) {
     console.warn(
       `[facelogin] FACELOGIN_ISSUER apunta a ${issuer} sin TLS. Los id_token y los códigos viajarían en claro.`,
     );
   }
 
-  const engine = new FaceEngine(store, derivedKey, lshSeed, secrets.sessionSecret);
+  const engine = new FaceEngine(store, derivedKey, lshSeed, secrets.lshHmacKey);
   const provider = new OidcProvider({
     issuer,
     appOrigin,

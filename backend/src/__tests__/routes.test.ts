@@ -261,3 +261,87 @@ test("POST /identify no entrega JWT con solo la cara o un transcript", async () 
   assert.equal(status, 403);
   assert.equal(body.code, "PASSKEY_REQUIRED");
 });
+
+test("GET /identities solo publica el recuento", async () => {
+  resetRateLimits();
+  const engine = newEngine();
+  engine.enroll("Ana", cluster(0, 0.97, 5));
+  const router = createRouter(engine, "session-secret");
+  let body: any = null;
+  const req = { method: "GET", url: "/identities", ip: "test" } as any;
+  const res = {
+    json: (data: any) => {
+      body = data;
+    },
+  } as any;
+  const handler = router.stack.find((layer: any) => layer.route?.path === "/identities" && layer.route.methods.get)
+    ?.route?.stack[0]?.handle;
+  if (handler) handler(req, res, () => {});
+  assert.deepEqual(body, { count: 1 });
+  assert.equal("names" in body, false);
+});
+
+test("DELETE /identities no borra sin token de administración", async () => {
+  resetRateLimits();
+  const previous = process.env.FACELOGIN_ADMIN_TOKEN;
+  delete process.env.FACELOGIN_ADMIN_TOKEN;
+  const engine = newEngine();
+  engine.enroll("Ana", cluster(0, 0.97, 5));
+  const router = createRouter(engine, "session-secret");
+  let status = 200;
+  const req = { method: "DELETE", url: "/identities", ip: "test", header: () => "" } as any;
+  const res = {
+    status: (code: number) => {
+      status = code;
+      return res;
+    },
+    json: () => {},
+  } as any;
+  const handler = router.stack.find((layer: any) => layer.route?.path === "/identities" && layer.route.methods.delete)
+    ?.route?.stack[0]?.handle;
+  try {
+    if (handler) handler(req, res, () => {});
+    assert.equal(status, 401);
+    assert.equal(engine.countIdentities(), 1);
+  } finally {
+    if (previous === undefined) delete process.env.FACELOGIN_ADMIN_TOKEN;
+    else process.env.FACELOGIN_ADMIN_TOKEN = previous;
+  }
+});
+
+test("DELETE /identities vacía la galería con token de administración", async () => {
+  resetRateLimits();
+  const previous = process.env.FACELOGIN_ADMIN_TOKEN;
+  process.env.FACELOGIN_ADMIN_TOKEN = "admin-de-prueba";
+  const engine = newEngine();
+  engine.enroll("Ana", cluster(0, 0.97, 5));
+  const router = createRouter(engine, "session-secret");
+  let status = 200;
+  let body: any = null;
+  const req = {
+    method: "DELETE",
+    url: "/identities",
+    ip: "test",
+    header: (name: string) => (name.toLowerCase() === "authorization" ? "Bearer admin-de-prueba" : ""),
+  } as any;
+  const res = {
+    status: (code: number) => {
+      status = code;
+      return res;
+    },
+    json: (data: any) => {
+      body = data;
+    },
+  } as any;
+  const handler = router.stack.find((layer: any) => layer.route?.path === "/identities" && layer.route.methods.delete)
+    ?.route?.stack[0]?.handle;
+  try {
+    if (handler) handler(req, res, () => {});
+    assert.equal(status, 200);
+    assert.equal(body.removed, 1);
+    assert.equal(engine.countIdentities(), 0);
+  } finally {
+    if (previous === undefined) delete process.env.FACELOGIN_ADMIN_TOKEN;
+    else process.env.FACELOGIN_ADMIN_TOKEN = previous;
+  }
+});

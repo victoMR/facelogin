@@ -33,6 +33,7 @@ export type AuthorizationCode = {
   identityId: string;
   displayName: string;
   authTime: number;
+  amr: string[];
   expiresAt: number;
   used: boolean;
   /** `jti` de los access tokens emitidos con este código, para revocarlos si se reutiliza. */
@@ -91,7 +92,7 @@ export class OidcStore {
   /** Convierte una petición pendiente en un código. La petición se consume. */
   issueCode(
     request: PendingRequest,
-    identity: { identityId: string; displayName: string; authTime: number },
+    identity: { identityId: string; displayName: string; authTime: number; amr?: string[] },
   ): AuthorizationCode {
     this.requests.delete(request.id);
     const code: AuthorizationCode = {
@@ -104,6 +105,7 @@ export class OidcStore {
       identityId: identity.identityId,
       displayName: identity.displayName,
       authTime: identity.authTime,
+      amr: identity.amr?.length ? identity.amr : ["face"],
       expiresAt: this.now() + this.codeTtlMs,
       used: false,
       issuedJtis: [],

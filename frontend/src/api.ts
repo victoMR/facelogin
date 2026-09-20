@@ -165,11 +165,15 @@ export function passkeyAuthenticateOptions(): Promise<{ ticket: string; options:
   return request("/api/webauthn/authenticate/options");
 }
 
-export function trustDevice(token: string, device: DeviceInfo): Promise<{ id: string; label: string; trusted: boolean }> {
+export function trustDevice(
+  token: string,
+  device: DeviceProof,
+  passkey?: PasskeyAssertion,
+): Promise<{ id: string; label: string; trusted: boolean }> {
   return request("/api/device/trust", {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },
-    body: JSON.stringify(device),
+    body: JSON.stringify({ device, passkey }),
   });
 }
 
@@ -181,7 +185,7 @@ export function listDevices(
   });
 }
 
-export function listIdentities(): Promise<{ count: number; names: string[] }> {
+export function listIdentities(): Promise<{ count: number }> {
   return request("/api/identities");
 }
 

@@ -58,6 +58,9 @@
 | **T13** | Supply chain (face-api, tfjs, deps) | Tampering | Media | Lockfile, digests de modelos | Pin + verify digests en CI |
 | **T14** | Insider con acceso a env de prod | Insider | Crítica | Least privilege (futuro) | Honeypots/canaries (T15) |
 | **T15** | Atacante cree que “sacó” el vault | — | — | Aún no | **Honeypot templates + canary tokens** |
+| **T16** | Enumeración de nombres en `/identities` | Info disclosure | Alta | Solo `{ count }` | Mitigado |
+| **T17** | Borrado masivo abierto | Elevation | Crítica | `FACELOGIN_ADMIN_TOKEN` obligatorio | Mitigado |
+| **T18** | JWT robado registra aparato nuevo | Elevation | Alta | Step-up + firma de la clave nueva | Mitigado |
 
 ---
 

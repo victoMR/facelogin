@@ -10,10 +10,20 @@ import {
   wordHeard,
 } from "../words.js";
 
-test("el banco tiene palabras rimbombantes y suficientes para un reto", () => {
-  assert.ok(WORD_BANK.length >= 24);
-  assert.ok(WORD_BANK.includes("rimbombante"));
-  assert.ok(WORD_BANK.includes("parangaricutirimícuaro"));
+test("el banco tiene más de 1250 palabras fáciles y distintas", () => {
+  assert.ok(WORD_BANK.length >= 1250, `solo hay ${WORD_BANK.length}`);
+  assert.ok(WORD_BANK.includes("tomate"));
+  assert.ok(WORD_BANK.includes("mariposa"));
+  const folded = new Set<string>();
+  for (const word of WORD_BANK) {
+    assert.ok(word.length >= 3 && word.length <= 12, word);
+    const key = word
+      .normalize("NFD")
+      .replace(/\p{M}/gu, "")
+      .toLowerCase();
+    assert.equal(folded.has(key), false, `duplicada: ${word}`);
+    folded.add(key);
+  }
 });
 
 test("pickWords elige tres distintas del banco", () => {

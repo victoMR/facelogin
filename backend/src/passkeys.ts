@@ -83,7 +83,7 @@ export async function registrationOptions(
     authenticatorSelection: {
       residentKey: "required",
       requireResidentKey: true,
-      userVerification: "preferred",
+      userVerification: "required",
       authenticatorAttachment: "platform",
     },
   });
@@ -104,7 +104,7 @@ export async function verifyRegistration(
       expectedChallenge: pending.challenge,
       expectedOrigin: config.origin,
       expectedRPID: config.rpID,
-      requireUserVerification: false,
+      requireUserVerification: true,
     });
     if (!result.verified || !result.registrationInfo) return null;
     const { credential } = result.registrationInfo;
@@ -125,7 +125,7 @@ export async function authenticationOptions(
 ): Promise<{ ticket: string; options: PublicKeyCredentialRequestOptionsJSON }> {
   const options = await generateAuthenticationOptions({
     rpID: config.rpID,
-    userVerification: "preferred",
+    userVerification: "required",
   });
   return { ticket: putTicket(options.challenge), options };
 }
@@ -144,7 +144,7 @@ export async function verifyAuthentication(
       expectedChallenge: pending.challenge,
       expectedOrigin: config.origin,
       expectedRPID: config.rpID,
-      requireUserVerification: false,
+      requireUserVerification: true,
       credential: {
         id: stored.id,
         publicKey: Buffer.from(stored.publicKey, "base64url"),

@@ -187,7 +187,7 @@ export function createOidcAppRouter(provider: OidcProvider, sessionSecret: strin
       res.status(401).json({ error: "Sesión ausente." });
       return;
     }
-    let session: { sub: string; name: string; authTime: number };
+    let session: { sub: string; name: string; authTime: number; amr?: string[] };
     try {
       session = await readSession(sessionSecret, token);
     } catch {
@@ -199,6 +199,7 @@ export function createOidcAppRouter(provider: OidcProvider, sessionSecret: strin
       identityId: session.sub,
       displayName: session.name,
       authTime: session.authTime,
+      amr: session.amr,
     });
     if (!result.ok) {
       res.status(400).json({ error: result.reason });

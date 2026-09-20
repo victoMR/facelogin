@@ -439,16 +439,17 @@ Y en el teléfono: `https://<ip-del-equipo>:5173`, aceptando el certificado auto
 
 **Esto no es opcional.** `getUserMedia` exige contexto seguro, y `http://192.168.x.x:5173` no lo es: `http://localhost` está en la lista blanca del navegador, una IP de la red local no. Sin HTTPS el teléfono no da cámara y no hay forma de arreglarlo desde la app — solo de explicarlo, que es lo que hace el mensaje de error.
 
-La primera ejecución escribe `FACELOGIN_MASTER_KEY` y `FACELOGIN_SESSION_SECRET` en `.env` (no se commitea). **Si pierdes esa master key, el vault ya no se descifra**: el backend lo detecta al arrancar y falla con un mensaje explícito en vez de reventar en cada login.
+La primera ejecución escribe `FACELOGIN_MASTER_KEY`, `FACELOGIN_SESSION_SECRET` y `FACELOGIN_LSH_HMAC_KEY` en `.env` (no se commitea). **Si pierdes esa master key, el vault ya no se descifra**: el backend lo detecta al arrancar y falla con un mensaje explícito en vez de reventar en cada login.
 
 Variables opcionales (ver `.env.example`):
 
 - `FACELOGIN_ENROLL_TOKEN` — si se define, `/api/enroll` exige `Authorization: Bearer <token>`. Sin ella el enrolamiento queda abierto y el backend lo avisa por consola al arrancar.
+- `FACELOGIN_ADMIN_TOKEN` — obligatorio para `DELETE /api/identities`. Sin él el borrado queda cerrado, aunque el enrolamiento esté abierto. No lo pongas en el frontend.
 
 Tests:
 
 ```bash
-npm test              # backend (86) + perfilado del frontend (41). Sin navegador.
+npm test              # backend + frontend, sin navegador.
 npm test -w backend
 npm run test:perf     # extremo a extremo con Playwright y throttling de CPU (ver *Rendimiento multi-dispositivo*)
 npm run eval:threshold  # calibración del umbral sobre caras reales (LFW)
@@ -469,18 +470,20 @@ Flujo:
 `POST /api/enroll` acepta las dos formas:
 
 ```jsonc
-{ "displayName": "Ana", "samples": [[…128 floats…], …] }              // una condición
-{ "displayName": "Ana", "conditions": [                                // multi-condición
+{ "displayName": "Ana", "shape": […64…], "samples": [[…128 floats…], …] }
+{ "displayName": "Ana", "shape": […64…], "conditions": [
     { "label": "con-lentes", "samples": [[…], …] },
     { "label": "sin-lentes", "samples": [[…], …] }
-] }
+], "device": { "id": "…", "publicKey": "…" } }
 ```
+
+La malla `shape` es obligatoria en plantillas nuevas. `GET /api/identities` solo devuelve `{ count }`.
 
 `POST /api/identify` también:
 
 ```jsonc
-{ "descriptor":  [ …128 floats… ] }        // uno
-{ "descriptors": [ [ … ], [ … ], [ … ] ] } // varios del mismo intento, máx. 8
+{ "descriptor":  [ …128 floats… ], "device": { "id": "…", "nonce": "…", "signature": "…" } }
+{ "descriptors": [ [ … ], [ … ] ], "passkey": { "ticket": "…", "assertion": { } } }
 ```
 
 Con varios descriptores el servidor se queda con el mejor y cobra `multiProbePenalty` por ello: el máximo de N intentos sube el score del impostor, y sin compensarlo mandar más descriptores bajaría el FRR a costa del FAR. Los coeficientes están medidos en `far.test.ts`, no elegidos a ojo.

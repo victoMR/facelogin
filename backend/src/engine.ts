@@ -157,6 +157,10 @@ export class FaceEngine {
     return this.store.all().map((template) => template.displayName);
   }
 
+  countIdentities(): number {
+    return this.store.all().length;
+  }
+
   /** Quita todas las identidades. La caché del proceso también se vacía. */
   clearGallery(): number {
     const count = this.store.all().length;

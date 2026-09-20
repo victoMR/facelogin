@@ -276,7 +276,7 @@ export class OidcProvider {
    */
   approve(
     requestId: string,
-    identity: { identityId: string; displayName: string; authTime: number },
+    identity: { identityId: string; displayName: string; authTime: number; amr?: string[] },
   ): { ok: true; location: string } | { ok: false; reason: string } {
     const request = this.store.readRequest(requestId);
     if (!request) return { ok: false, reason: "La petición de autorización expiró o no existe." };
@@ -413,7 +413,7 @@ export class OidcProvider {
         aud: client.client_id,
         nonce: record.nonce ?? undefined,
         auth_time: record.authTime,
-        amr: ["face"],
+        amr: record.amr.length ? record.amr : ["face"],
         ...(record.scopes.includes("profile") ? { name: record.displayName } : {}),
       },
       issuedAt,

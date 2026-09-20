@@ -7,6 +7,7 @@ import { deriveMasterKey } from "../crypto.js";
 import { FaceEngine } from "../engine.js";
 import {
   authenticationOptions,
+  registrationOptions,
   resetPasskeyChallenges,
   verifyAuthentication,
   webAuthnFromOrigin,
@@ -22,6 +23,15 @@ function cluster(anchor: number, c: number, count: number): number[][] {
     return l2Normalize(vector);
   });
 }
+
+test("WebAuthn exige verificación del usuario", async () => {
+  resetPasskeyChallenges();
+  const config = webAuthnFromOrigin("http://localhost:5173");
+  const registration = await registrationOptions(config, { id: "ana", name: "Ana" }, []);
+  assert.equal(registration.options.authenticatorSelection?.userVerification, "required");
+  const authentication = await authenticationOptions(config);
+  assert.equal(authentication.options.userVerification, "required");
+});
 
 test("webAuthnFromOrigin toma el host como rpID", () => {
   const config = webAuthnFromOrigin("https://login.example:8443/");

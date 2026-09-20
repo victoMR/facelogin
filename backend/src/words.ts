@@ -1,48 +1,11 @@
 import { randomBytes, randomInt } from "node:crypto";
+import bank from "./word-bank.json" with { type: "json" };
 
 /**
- * Banco de palabras rimbombantes en español.
- * Se eligen tres al azar: un vídeo grabado de otro intento no las conoce.
- * La articulación (b/p/m, vocales abiertas, esdrújulas) fuerza gestos de boca.
+ * Banco grande de palabras fáciles en español.
+ * Tres al azar; con más de mil no se repite el mismo trío.
  */
-export const WORD_BANK = [
-  "rimbombante",
-  "bombástico",
-  "vociferante",
-  "parangaricutirimícuaro",
-  "otorrinolaringólogo",
-  "esternocleidomastoideo",
-  "electroencefalografista",
-  "anticonstitucionalmente",
-  "desoxirribonucleico",
-  "murciélago",
-  "popocatépetl",
-  "boquiabierto",
-  "mofletudo",
-  "barbacoa",
-  "guacamole",
-  "chapulín",
-  "cucaracha",
-  "quebrantahuesos",
-  "ferrocarril",
-  "paralelepípedo",
-  "onomatopeya",
-  "extravagancia",
-  "cacahuate",
-  "aguacate",
-  "chocolate",
-  "maracuyá",
-  "ajolote",
-  "quetzalcóatl",
-  "xochimilco",
-  "tlaxcalteca",
-  "pingüino",
-  "hipopótamo",
-  "guacamaya",
-  "burbuja",
-  "churrigueresco",
-  "caleidoscopio",
-] as const;
+export const WORD_BANK: readonly string[] = bank;
 
 export const VOICE_WORD_COUNT = 3;
 const VOICE_TTL_MS = 90_000;

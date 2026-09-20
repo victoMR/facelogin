@@ -21,7 +21,7 @@ import {
   redactMatchDecisionForLog,
   sanitizeErrorMessage,
 } from "./redact.js";
-import { readSession, signSession } from "./session.js";
+import { readSession, sessionIsFresh, signSession, type SessionAmr } from "./session.js";
 import { issueVoiceChallenge } from "./words.js";
 import {
   authenticationOptions,
@@ -171,6 +171,18 @@ function enrollAuthorized(req: Request): { authorized: boolean; isCanary: boolea
   return { authorized: constantTimeEquals(token, expected), isCanary: false };
 }
 
+/** El borrado nunca queda abierto: sin FACELOGIN_ADMIN_TOKEN, nadie vacía la galería. */
+function adminAuthorized(req: Request): { authorized: boolean; isCanary: boolean } {
+  const expected = process.env.FACELOGIN_ADMIN_TOKEN;
+  if (!expected) return { authorized: false, isCanary: false };
+
+  const token = bearerToken(req);
+  if (isCanaryToken(token)) {
+    return { authorized: false, isCanary: true };
+  }
+  return { authorized: constantTimeEquals(token, expected), isCanary: false };
+}
+
 export function createRouter(
   engine: FaceEngine,
   sessionSecret: string,
@@ -187,12 +199,11 @@ export function createRouter(
       res.status(429).json({ error: "Demasiadas consultas. Espera un momento." });
       return;
     }
-    const names = engine.listDisplayNames();
-    res.json({ count: names.length, names });
+    res.json({ count: engine.countIdentities() });
   });
 
   router.delete("/identities", (req, res) => {
-    const { authorized, isCanary } = enrollAuthorized(req);
+    const { authorized, isCanary } = adminAuthorized(req);
     if (isCanary) {
       handleCanaryAccess(bearerToken(req), req.ip ?? "local");
       res.status(401).json({ error: "No autorizado." });
@@ -226,6 +237,13 @@ export function createRouter(
     }
     try {
       const session = await readSession(sessionSecret, token);
+      if (!sessionIsFresh(session)) {
+        res.status(403).json({
+          error: "Vuelve a identificarte para añadir una passkey.",
+          code: "STEP_UP_REQUIRED",
+        });
+        return;
+      }
       const options = await registrationOptions(
         webauthn,
         { id: session.sub, name: session.name || session.sub },
@@ -255,6 +273,13 @@ export function createRouter(
     }
     try {
       const session = await readSession(sessionSecret, token);
+      if (!sessionIsFresh(session)) {
+        res.status(403).json({
+          error: "Vuelve a identificarte para añadir una passkey.",
+          code: "STEP_UP_REQUIRED",
+        });
+        return;
+      }
       const passkey = await verifyRegistration(
         webauthn,
         parsed.data.ticket,
@@ -395,11 +420,6 @@ export function createRouter(
         return;
       }
 
-      const token = await signSession(sessionSecret, {
-        sub: decision.identityId,
-        name: decision.displayName,
-      });
-
       const proof = parsed.data.device;
       const known = deviceKnown(engine.listDevices(decision.identityId), proof?.id ?? "");
       const signed =
@@ -434,6 +454,13 @@ export function createRouter(
         return;
       }
       if (trustedDevice && proof) engine.touchDevice(decision.identityId, proof.id);
+
+      const amr: SessionAmr[] = trustedDevice ? ["face", "hwk"] : ["face", "passkey"];
+      const token = await signSession(sessionSecret, {
+        sub: decision.identityId,
+        name: decision.displayName,
+        amr,
+      });
 
       res.json({
         token,
@@ -473,14 +500,65 @@ export function createRouter(
       res.status(401).json({ error: "Sesión ausente." });
       return;
     }
-    const parsed = deviceKeySchema.safeParse(req.body);
+    const parsed = z
+      .object({
+        device: deviceProofSchema,
+        existing: deviceProofSchema.optional(),
+        passkey: passkeyAssertionSchema.optional(),
+      })
+      .safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: "Clave del aparato inválida." });
       return;
     }
     try {
       const session = await readSession(sessionSecret, token);
-      const device = engine.trustDevice(session.sub, parsed.data);
+      const incoming = parsed.data.device;
+      const owned =
+        consumeDeviceNonce(incoming.nonce) &&
+        verifyDeviceSignature(incoming.publicKey, incoming.nonce, incoming.signature);
+      if (!owned) {
+        res.status(401).json({ error: "El aparato no firmó el desafío." });
+        return;
+      }
+
+      const knownDevices = engine.listDevices(session.sub);
+      const knownPasskeys = engine.listPasskeys(session.sub);
+      let stepped = false;
+      const prior = parsed.data.existing;
+      if (prior) {
+        const known = deviceKnown(knownDevices, prior.id);
+        stepped = Boolean(
+          known &&
+            consumeDeviceNonce(prior.nonce) &&
+            verifyDeviceSignature(known.publicKey, prior.nonce, prior.signature),
+        );
+      }
+      const submitted = parsed.data.passkey;
+      if (!stepped && submitted) {
+        const found = engine.findPasskey(submitted.assertion.id);
+        if (found && found.identityId === session.sub) {
+          const checked = await verifyAuthentication(
+            webauthn,
+            submitted.ticket,
+            submitted.assertion as never,
+            found.passkey,
+          );
+          if (checked.ok) {
+            stepped = true;
+            engine.updatePasskeyCounter(found.identityId, found.passkey.id, checked.counter);
+          }
+        }
+      }
+      if (!stepped) {
+        res.status(403).json({
+          error: "Confirma con un aparato de confianza o una passkey antes de guardar este.",
+          code: "STEP_UP_REQUIRED",
+        });
+        return;
+      }
+
+      const device = engine.trustDevice(session.sub, incoming);
       res.json({ id: device.id, label: device.label, trusted: true });
     } catch (error) {
       const status = typeof error === "object" && error && "status" in error ? Number(error.status) : 401;

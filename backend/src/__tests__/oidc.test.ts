@@ -359,7 +359,7 @@ test("flujo completo: /authorize → cara → /token, y el id_token verifica con
     assert.ok(typeof payload.auth_time === "number");
     assert.ok(typeof payload.iat === "number" && typeof payload.exp === "number");
     assert.ok((payload.exp as number) > (payload.iat as number));
-    assert.deepEqual(payload.amr, ["face"]);
+    assert.deepEqual(payload.amr, ["face", "hwk"]);
     assert.equal(payload.name, "Ana Prueba");
 
     // Y el access_token sirve en /userinfo, con los claims del scope concedido.

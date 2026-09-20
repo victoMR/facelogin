@@ -1,6 +1,5 @@
 import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
 import {
-  clearIdentities,
   enroll,
   identify,
   listIdentities,
@@ -19,7 +18,6 @@ import {
 import { authenticatePasskey, passkeySupported, registerPasskey } from "./passkey";
 import type { Capture } from "./FaceCapture";
 import {
-  clearDeviceTrustLocally,
   deviceProof,
   ensureDevice,
   isDeviceTrustedLocally,
@@ -222,8 +220,7 @@ export function App() {
   const [enrolled, setEnrolled] = useState<EnrollResult | null>(null);
   const [oidc, setOidc] = useState<OidcRequestInfo | null>(null);
   const [pendingTrust, setPendingTrust] = useState<PendingTrust | null>(null);
-  const [gallery, setGallery] = useState<{ count: number; names: string[] }>({ count: 0, names: [] });
-  const [wiping, setWiping] = useState(false);
+  const [gallery, setGallery] = useState<{ count: number }>({ count: 0 });
 
   // Condiciones del enrollo en curso: una sola, o con lentes + sin lentes.
   const conditions: EnrollCondition[] = glasses ? GLASSES_CONDITIONS : SINGLE_CONDITION;
@@ -253,7 +250,7 @@ export function App() {
 
     void listIdentities()
       .then(setGallery)
-      .catch(() => setGallery({ count: 0, names: [] }));
+      .catch(() => setGallery({ count: 0 }));
 
     const token = localStorage.getItem("facelogin.token");
     if (!token) return;
@@ -268,7 +265,7 @@ export function App() {
   function refreshGallery() {
     void listIdentities()
       .then(setGallery)
-      .catch(() => setGallery({ count: 0, names: [] }));
+      .catch(() => setGallery({ count: 0 }));
   }
 
   function goHome() {
@@ -276,24 +273,6 @@ export function App() {
     setPendingTrust(null);
     setMode("home");
     refreshGallery();
-  }
-
-  async function wipeGallery() {
-    if (wiping) return;
-    setWiping(true);
-    setError("");
-    try {
-      await clearIdentities();
-      clearDeviceTrustLocally();
-      localStorage.removeItem("facelogin.token");
-      setSession(null);
-      setEnrolled(null);
-      setGallery({ count: 0, names: [] });
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "No se pudieron borrar los rostros.");
-    } finally {
-      setWiping(false);
-    }
   }
 
   async function identifyWithDevice(captures: Capture[]) {
@@ -330,11 +309,13 @@ export function App() {
   async function confirmTrust() {
     if (!pendingTrust) return;
     try {
-      const device = await ensureDevice();
-      await trustDevice(pendingTrust.token, device);
+      const device = await deviceProof();
+      const passkey = passkeySupported() ? await authenticatePasskey() : undefined;
+      await trustDevice(pendingTrust.token, device, passkey);
       markDeviceTrustedLocally();
-    } catch {
-      /* entra igual; solo no queda recordado */
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "No se pudo confiar en este aparato.");
+      return;
     }
     setSession({
       token: pendingTrust.token,
@@ -528,15 +509,8 @@ export function App() {
             </button>
             {gallery.count > 0 && (
               <p className="home__vault">
-                Hay {gallery.count === 1 ? "1 rostro guardado" : `${gallery.count} rostros guardados`}
-                {gallery.names[0] ? ` (${gallery.names.join(", ")})` : ""}. Borrar el archivo a mano
-                no basta: el servidor lo sigue teniendo en memoria.
+                Hay {gallery.count === 1 ? "1 rostro guardado" : `${gallery.count} rostros guardados`}.
               </p>
-            )}
-            {gallery.count > 0 && (
-              <button className="btn btn--quiet" disabled={wiping} onClick={() => void wipeGallery()}>
-                {wiping ? "Borrando…" : "Borrar todos los rostros"}
-              </button>
             )}
           </div>
         </Screen>
