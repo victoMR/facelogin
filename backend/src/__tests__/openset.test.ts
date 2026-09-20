@@ -163,3 +163,61 @@ test("la calibración anterior habría dejado entrar a todos los desconocidos", 
   // Y no por poco: hasta el desconocido peor puntuado saca más de 0.75.
   assert.ok(peor > 0.75, `el peor desconocido sacaba ${peor}`);
 });
+
+test("el fixture contiene las 30 identidades esperadas", () => {
+  assert.equal(fixture.identidades.length, 30);
+  for (const id of fixture.identidades) {
+    assert.ok(id.nombre.length > 0);
+    assert.ok(id.enrollo.length > 0);
+    assert.ok(id.probes.length > 0);
+  }
+});
+
+test("cada identidad tiene exactamente 5 enrollos y 2 probes", () => {
+  for (const id of fixture.identidades) {
+    assert.equal(id.enrollo.length, 5, `${id.nombre} debe tener 5 enrollos`);
+    assert.equal(id.probes.length, 2, `${id.nombre} debe tener 2 probes`);
+  }
+});
+
+test("los desconocidos son 400 personas distintas", () => {
+  assert.equal(fixture.desconocidos.length, 400);
+});
+
+test("todos los descriptores son vectores de 128 dimensiones", () => {
+  for (const id of fixture.identidades) {
+    for (const vec of id.enrollo) assert.equal(vec.length, 128);
+    for (const vec of id.probes) assert.equal(vec.length, 128);
+  }
+  for (const vec of fixture.desconocidos) assert.equal(vec.length, 128);
+});
+
+test("los descriptores no están normalizados en el fixture", () => {
+  const l2norm = (v: number[]) => Math.sqrt(v.reduce((sum, x) => sum + x * x, 0));
+  const primer = fixture.identidades[0].enrollo[0];
+  const norm = l2norm(primer);
+  assert.ok(Math.abs(norm - 1) > 0.01, "los descriptores crudos no deberían estar ya normalizados");
+});
+
+test("galería de 3 identidades tiene mejor TPIR que galería de 30", () => {
+  const r3 = medir(3);
+  const r30 = medir(30);
+  console.log(`TPIR: galería 3 = ${(r3.tpir * 100).toFixed(2)}%, galería 30 = ${(r30.tpir * 100).toFixed(2)}%`);
+  assert.ok(r3.tpir >= r30.tpir, "galería pequeña debería tener mejor o igual TPIR");
+});
+
+test("BASE_COSINE_THRESHOLD está por encima del umbral de producción", () => {
+  const UMBRAL_DE_PRODUCCION = 0.5772533624634173;
+  assert.ok(BASE_COSINE_THRESHOLD > UMBRAL_DE_PRODUCCION);
+  assert.ok(BASE_COSINE_THRESHOLD > 0.9, "el umbral base debería ser bastante alto");
+});
+
+test("el fixture origen es LFW", () => {
+  assert.match(fixture.origen, /LFW/i);
+});
+
+test("cada identidad del fixture tiene nombre único", () => {
+  const nombres = fixture.identidades.map((i) => i.nombre);
+  const unicos = new Set(nombres);
+  assert.equal(unicos.size, nombres.length, "todos los nombres deben ser únicos");
+});

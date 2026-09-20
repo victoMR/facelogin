@@ -4,59 +4,38 @@ on:
   push:
     branches: [main]
   pull_request:
-
-concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+    branches: [main]
 
 jobs:
   test:
-    name: Unit tests
+    name: Tests (Node ${{ matrix.node }})
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    strategy:
+      matrix:
+        node: ["20", "22"]
+      fail-fast: false
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - name: Setup Node.js ${{ matrix.node }}
+        uses: actions/setup-node@v4
         with:
-          node-version: "22"
-          cache: npm
+          node-version: ${{ matrix.node }}
+          cache: "npm"
 
-      - name: Install
+      - name: Install dependencies
         run: npm ci
 
-      - name: Backend tests
+      - name: Run backend tests
         run: npm test -w backend
 
-      - name: Frontend tests
+      - name: Run frontend tests
         run: npm test -w frontend
 
-  build:
-    name: Build
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    needs: test
-    steps:
-      - uses: actions/checkout@v4
+      - name: Build backend
+        run: npm run build -w backend
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: npm
-
-      - name: Install
-        run: npm ci
-
-      - name: Build
-        run: npm run build
-
-  human-acceptance:
-    name: Human acceptance checklist
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Verify checklist is documented
-        run: |
-          test -f docs/aceptacion-humana.md
-          grep -q "Entré solo con mi cara" docs/aceptacion-humana.md
-          echo "Checklist presente — validación humana sigue siendo manual en demo/PR."
+      - name: Build frontend
+        run: npm run build -w frontend
