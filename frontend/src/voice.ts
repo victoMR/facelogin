@@ -13,7 +13,7 @@ type RecInstance = {
   start(): void;
   stop(): void;
   abort(): void;
-  onresult: ((event: { results: ArrayLike<{ 0: { transcript: string } }> }) => void) | null;
+  onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
   onerror: ((event: { error: string }) => void) | null;
   onend: (() => void) | null;
 };
@@ -47,25 +47,25 @@ export function listenSpeech(
   rec.lang = "es-MX";
   rec.continuous = true;
   rec.interimResults = true;
-  rec.maxAlternatives = 1;
+  rec.maxAlternatives = 3;
 
-  const flush = (event: { results: ArrayLike<{ 0: { transcript: string } }> }) => {
+  const flush = (event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => {
     const parts: string[] = [];
     for (let i = 0; i < event.results.length; i += 1) {
-      const alt = event.results[i]?.[0]?.transcript;
-      if (alt) parts.push(alt);
+      const best = event.results[i]?.[0]?.transcript;
+      if (best) parts.push(best);
     }
     if (parts.length) onTranscript(parts.join(" "));
   };
 
   rec.onresult = flush;
   rec.onerror = (event) => {
-    if (event.error === "no-speech" || event.error === "aborted") return;
+    if (event.error === "no-speech" || event.error === "aborted" || event.error === "network") return;
     if (event.error === "not-allowed") {
       onError("Activa el micrófono para decir las palabras.");
       return;
     }
-    onError("No se oyó bien. Vuelve a decir las tres palabras.");
+    rec.lang = rec.lang === "es-MX" ? "es-ES" : "es-MX";
   };
   rec.onend = () => {
     if (!stopped) {

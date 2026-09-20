@@ -16,6 +16,7 @@ import {
 } from "./matcher.js";
 import { VaultStore } from "./store.js";
 import { deviceKnown, readDevice, type TrustedDevice } from "./devices.js";
+import type { StoredPasskey } from "./passkeys.js";
 import type { FaceCondition, FaceTemplate, MatchDecision } from "./types.js";
 
 const DIM = 128;
@@ -150,6 +151,45 @@ export class FaceEngine {
 
   listDevices(identityId: string): TrustedDevice[] {
     return this.store.all().find((item) => item.id === identityId)?.devices ?? [];
+  }
+
+  listDisplayNames(): string[] {
+    return this.store.all().map((template) => template.displayName);
+  }
+
+  /** Quita todas las identidades. La caché del proceso también se vacía. */
+  clearGallery(): number {
+    const count = this.store.all().length;
+    this.store.clear();
+    return count;
+  }
+
+  listPasskeys(identityId: string): StoredPasskey[] {
+    return this.store.all().find((item) => item.id === identityId)?.passkeys ?? [];
+  }
+
+  findPasskey(credentialId: string): { identityId: string; passkey: StoredPasskey } | null {
+    for (const template of this.store.all()) {
+      const passkey = (template.passkeys ?? []).find((item) => item.id === credentialId);
+      if (passkey) return { identityId: template.id, passkey };
+    }
+    return null;
+  }
+
+  addPasskey(identityId: string, passkey: StoredPasskey): void {
+    const template = this.store.all().find((item) => item.id === identityId);
+    if (!template) throw Object.assign(new Error("Sesión inválida."), { status: 401 });
+    const rest = (template.passkeys ?? []).filter((item) => item.id !== passkey.id);
+    this.store.upsert({ ...template, passkeys: [...rest, passkey] }, template.lshKeys);
+  }
+
+  updatePasskeyCounter(identityId: string, credentialId: string, counter: number): void {
+    const template = this.store.all().find((item) => item.id === identityId);
+    if (!template) return;
+    const passkeys = (template.passkeys ?? []).map((item) =>
+      item.id === credentialId ? { ...item, counter } : item,
+    );
+    this.store.upsert({ ...template, passkeys }, template.lshKeys);
   }
 
   revokeDevice(identityId: string, deviceId: string): void {
@@ -322,9 +362,10 @@ export class FaceEngine {
     return l2Normalize(shape);
   }
 
-  /** Plantilla vieja sin malla, o probe sin malla: no se castiga. */
+  /** Plantilla nueva con malla: el probe tiene que traerla. Las viejas siguen. */
   private shapeAgrees(template: FaceTemplate, probeShape: number[] | null): boolean {
-    if (!template.encryptedShape || !probeShape) return true;
+    if (!template.encryptedShape) return true;
+    if (!probeShape) return false;
     const stored = decryptVector(template.encryptedShape, this.masterKey);
     if (stored.length !== SHAPE_DIM) return true;
     return cosine(l2Normalize(stored), probeShape) >= SHAPE_MIN;

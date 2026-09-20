@@ -63,9 +63,17 @@ import {
   type QualityIssue,
   type QualityVerdict,
 } from "./quality";
-import { drawCapture, glanceDots, ovalGeometry, ovalPath, type Insets, type Lock } from "./overlay";
-import { ApiError, voiceChallenge, type VoiceProof } from "./api";
-import { ENROLL_CAPTCHA_SCORE, humanConfidence, SpanTracker, WORD_MOUTH_SPAN, wordsHeard } from "./human";
+import {
+  drawCapture,
+  glanceDotDone,
+  glanceDots,
+  ovalGeometry,
+  ovalPath,
+  type Insets,
+  type Lock,
+} from "./overlay";
+import { voiceChallenge, type VoiceProof } from "./api";
+import { ENROLL_CAPTCHA_SCORE, humanConfidence, lastHeard, SpanTracker, wordHeard } from "./human";
 import { listenSpeech, openMicMeter, speechSupported } from "./voice";
 
 /** Una captura válida: los descriptores aumentados de un frame y su calidad. */
@@ -319,6 +327,7 @@ function ProgressRing({
   state,
   pulse,
   glance,
+  glanceStep = 0,
 }: {
   width: number;
   height: number;
@@ -332,6 +341,8 @@ function ProgressRing({
   state: Lock;
   pulse: number;
   glance?: ChallengeId;
+  /** Progreso de ESTA ronda (0–2). No el total de la sesión. */
+  glanceStep?: number;
 }) {
   if (width < 2 || height < 2) return null;
   const oval = ovalGeometry(width, height, insets);
@@ -382,14 +393,9 @@ function ProgressRing({
           className="glance__dot"
           cx={dot.x}
           cy={dot.y}
-          r={glance === dot.id ? 7 : 4}
+          r={glance === dot.id ? 11 : 5}
           data-on={glance === dot.id || undefined}
-          data-done={
-            (dot.id === "center" && done > 0) ||
-            (dot.id === "left" && done > 1) ||
-            (dot.id === "right" && done > 2) ||
-            undefined
-          }
+          data-done={glance !== dot.id && glanceDotDone(dot.id, glanceStep) ? true : undefined}
         />
       ))}
     </svg>
@@ -402,8 +408,10 @@ type VoiceGate =
       phase: "speak";
       id: string;
       words: string[];
+      spoken: boolean[];
       heard: boolean[];
       mouths: number[];
+      mouthNow: number;
       transcript: string;
     }
   | { phase: "error"; message: string };
@@ -418,6 +426,7 @@ export function FaceCapture({
   onComplete,
   onError,
   onCancel,
+  onLogin,
 }: {
   title: string;
   flow: Flow;
@@ -430,6 +439,8 @@ export function FaceCapture({
   onComplete: (captures: Capture[], voice?: VoiceProof) => Promise<void>;
   onError: (message: string) => void;
   onCancel: () => void;
+  /** 409: la cara ya existe. Va a entrar, no a casa. */
+  onLogin?: () => void;
 }) {
   const [stageRef, stageSize] = useElementSize<HTMLDivElement>();
   /**
@@ -1195,14 +1206,6 @@ export function FaceCapture({
          * resto de capturas siguen en el ref.
          */
         setBusy(false);
-        if (error instanceof ApiError && error.code === "VOICE_REQUIRED") {
-          voiceProofRef.current = undefined;
-          finishingVoiceRef.current = false;
-          voiceRef.current = true;
-          setVoiceGate({ phase: "load" });
-          setInstruction("Di estas tres palabras");
-          return;
-        }
         setRecovery(planRecovery(error));
       }
     }
@@ -1248,8 +1251,10 @@ export function FaceCapture({
           phase: "speak",
           id: challenge.id,
           words: challenge.words,
+          spoken: challenge.words.map(() => false),
           heard: challenge.words.map(() => false),
           mouths: challenge.words.map(() => 0),
+          mouthNow: 0,
           transcript: "",
         });
       })
@@ -1269,29 +1274,43 @@ export function FaceCapture({
   useEffect(() => {
     if (voiceGate?.phase !== "speak") return;
     const { id, words } = voiceGate;
-    const stopListen = listenSpeech(
-      (text) => {
-        setVoiceGate((previous) => {
-          if (!previous || previous.phase !== "speak" || previous.id !== id) return previous;
-          const detected = wordsHeard(text, words);
-          const span = mouthRef.current.windowSpan(24);
-          const heard = previous.heard.map((ok, index) => ok || (detected[index] && span >= WORD_MOUTH_SPAN));
-          const mouths = previous.mouths.map((value, index) =>
-            heard[index] && !previous.heard[index] ? span : value,
-          );
-          return { ...previous, heard, mouths, transcript: text };
-        });
-      },
-      (message) => setVoiceGate({ phase: "error", message }),
-    );
+    let stopListen = () => {};
     let meterStop: (() => void) | undefined;
+    let cancelled = false;
     void openMicMeter().then(
       (meter) => {
+        if (cancelled) {
+          meter.stop();
+          return;
+        }
         meterStop = meter.stop;
       },
       () => undefined,
-    );
+    ).then(() => {
+      if (cancelled) return;
+      stopListen = listenSpeech(
+        (text) => {
+          setVoiceGate((previous) => {
+            if (!previous || previous.phase !== "speak" || previous.id !== id) return previous;
+            const current = previous.heard.findIndex((ok) => !ok);
+            if (current < 0) return { ...previous, transcript: text };
+            const said = wordHeard(text, words[current]);
+            const spoken = previous.spoken.map((ok, index) => ok || (index === current && said));
+            const heard = previous.heard.map((ok, index) => ok || (index === current && said));
+            if (said && !previous.heard[current]) playCue("step");
+            return {
+              ...previous,
+              spoken,
+              heard,
+              transcript: said ? "" : text,
+            };
+          });
+        },
+        (message) => setVoiceGate({ phase: "error", message }),
+      );
+    });
     return () => {
+      cancelled = true;
       stopListen();
       meterStop?.();
     };
@@ -1309,13 +1328,6 @@ export function FaceCapture({
     setVoiceGate(null);
     void completeRef.current(capturesRef.current, proof).catch((error: unknown) => {
       setBusy(false);
-      if (error instanceof ApiError && error.code === "VOICE_REQUIRED") {
-        voiceProofRef.current = undefined;
-        finishingVoiceRef.current = false;
-        voiceRef.current = true;
-        setVoiceGate({ phase: "load" });
-        return;
-      }
       setRecovery(planRecovery(error));
     });
   }, [voiceGate]);
@@ -1336,6 +1348,15 @@ export function FaceCapture({
     const status = (error as { status?: number } | null)?.status ?? 0;
 
     if (flow === "login") {
+      if (status === 403) {
+        return {
+          title: "Falta una passkey",
+          detail: raw,
+          raw,
+          retryPhase: null,
+          retryLabel: "Reintentar",
+        };
+      }
       if (status !== 401) {
         return {
           title: "No pudimos comprobarlo",
@@ -1530,12 +1551,23 @@ export function FaceCapture({
    * ser más explícito porque no hay óvalo que mirar.
    */
   const blocking = speaking && verdict.blocking && verdict.issue !== "ninguno" && !voiceGate;
+  const voiceSpeak = voiceGate?.phase === "speak" ? voiceGate : null;
+  const voiceIndex = voiceSpeak ? voiceSpeak.heard.findIndex((ok) => !ok) : -1;
+  const voiceCurrent = voiceSpeak
+    ? voiceIndex < 0
+      ? voiceSpeak.words.length - 1
+      : voiceIndex
+    : 0;
+  const voiceWord = voiceSpeak?.words[voiceCurrent] ?? "";
+  const voiceHeard = voiceSpeak?.transcript ? lastHeard(voiceSpeak.transcript) : "";
   const headline = voiceGate
     ? voiceGate.phase === "error"
       ? voiceGate.message
       : voiceGate.phase === "load"
         ? "Un momento…"
-        : "Di estas tres palabras, bien marcadas"
+        : voiceHeard
+          ? `${voiceCurrent + 1} de ${voiceSpeak?.words.length ?? 3} · Te oigo: ${voiceHeard}`
+          : `${voiceCurrent + 1} de ${voiceSpeak?.words.length ?? 3} · Di «${voiceWord}»`
     : blocking
       ? verdict.message
       : instruction;
@@ -1596,23 +1628,12 @@ export function FaceCapture({
           state={ringState}
           pulse={pulse}
           glance={current}
+          glanceStep={step}
         />
         <div className="capture__scrim" aria-hidden="true" />
-        {voiceGate && (
+        {voiceGate && voiceGate.phase !== "speak" && (
           <div className="voice" role="status" aria-live="polite">
-            {voiceGate.phase === "speak" && (
-              <ul className="voice__words">
-                {voiceGate.words.map((word, index) => (
-                  <li key={word} className="voice__word" data-ok={voiceGate.heard[index] || undefined}>
-                    {word}
-                  </li>
-                ))}
-              </ul>
-            )}
             {voiceGate.phase === "load" && <p className="voice__hint">Preparando el reto…</p>}
-            {voiceGate.phase === "speak" && (
-              <p className="voice__hint">Pronúncialas con la boca bien abierta. Te oímos y te vemos.</p>
-            )}
             {voiceGate.phase === "error" && (
               <button
                 className="btn btn--primary"
@@ -1671,9 +1692,27 @@ export function FaceCapture({
         </p>
       )}
 
-      <div className="capture__foot" ref={footRef}>
+      <div className="capture__foot" ref={footRef} data-voice={voiceSpeak ? true : undefined}>
+        {voiceSpeak && (
+          <div className="voice voice--foot" role="status" aria-live="polite">
+            <ol className="voice__steps" aria-label="Progreso de palabras">
+              {voiceSpeak.words.map((item, step) => (
+                <li
+                  key={item}
+                  data-ok={voiceSpeak.heard[step] || undefined}
+                  data-on={step === voiceCurrent && !voiceSpeak.heard[step] ? true : undefined}
+                >
+                  {step + 1}
+                </li>
+              ))}
+            </ol>
+            <p className="voice__word" data-ok={voiceSpeak.heard[voiceCurrent] || undefined}>
+              {voiceWord}
+            </p>
+          </div>
+        )}
         <p className="capture__instruction" data-blocking={blocking || undefined}>
-          <span key={headline} className="capture__line">
+          <span key={voiceSpeak ? `${voiceSpeak.id}-${voiceCurrent}` : headline} className="capture__line">
             {headline}
           </span>
         </p>
@@ -1815,7 +1854,7 @@ export function FaceCapture({
               className="btn btn--primary"
               autoFocus
               onClick={() => {
-                if (recovery.leave) onCancel();
+                if (recovery.leave) (onLogin ?? onCancel)();
                 else if (recovery.retryPhase === null) retryAll();
                 else retryPhase(recovery.retryPhase);
               }}

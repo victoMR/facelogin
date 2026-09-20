@@ -11,6 +11,7 @@
     "init:honeypots": "tsx src/init-honeypots.ts"
   },
   "dependencies": {
+    "@simplewebauthn/server": "^14.0.2",
     "cors": "^2.8.5",
     "dotenv": "^16.6.1",
     "express": "^5.1.0",

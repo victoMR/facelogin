@@ -22,7 +22,15 @@ import {
   sanitizeErrorMessage,
 } from "./redact.js";
 import { readSession, signSession } from "./session.js";
-import { consumeVoiceChallenge, issueVoiceChallenge } from "./words.js";
+import { issueVoiceChallenge } from "./words.js";
+import {
+  authenticationOptions,
+  registrationOptions,
+  verifyAuthentication,
+  verifyRegistration,
+  webAuthnFromOrigin,
+  type WebAuthnConfig,
+} from "./passkeys.js";
 
 const vectorSchema = z.array(z.number().finite()).length(128);
 const shapeSchema = z.array(z.number().finite()).length(64).optional();
@@ -54,7 +62,7 @@ const enrollSchema = z
     displayName: z.string().trim().min(2).max(64),
     samples: z.array(vectorSchema).min(4).max(40).optional(),
     conditions: z.array(conditionSchema).min(1).max(4).optional(),
-    shape: shapeSchema,
+    shape: z.array(z.number().finite()).length(64),
     device: deviceKeySchema.optional(),
   })
   .refine((body) => Boolean(body.samples) !== Boolean(body.conditions), {
@@ -66,9 +74,21 @@ const enrollSchema = z
  * intento). El servidor se queda con el mejor y aplica la penalización
  * multi-probe; ver `multiProbePenalty`.
  */
-const voiceProofSchema = z.object({
-  id: z.string().trim().min(8).max(128),
-  transcript: z.string().trim().min(3).max(400),
+const passkeyAssertionSchema = z.object({
+  ticket: z.string().trim().min(8).max(128),
+  assertion: z
+    .object({
+      id: z.string().min(8),
+      rawId: z.string().min(8),
+      type: z.literal("public-key"),
+      response: z.object({
+        clientDataJSON: z.string().min(8),
+        authenticatorData: z.string().min(8),
+        signature: z.string().min(8),
+        userHandle: z.string().optional(),
+      }),
+    })
+    .passthrough(),
 });
 
 const identifySchema = z
@@ -79,7 +99,7 @@ const identifySchema = z
     device: deviceProofSchema.optional(),
     challenge: z.string().optional(),
     challengeHmac: z.string().optional(),
-    voice: voiceProofSchema.optional(),
+    passkey: passkeyAssertionSchema.optional(),
   })
   .refine((body) => Boolean(body.descriptor) !== Boolean(body.descriptors), {
     message: "Manda `descriptor` o `descriptors`, no ambos.",
@@ -151,11 +171,43 @@ function enrollAuthorized(req: Request): { authorized: boolean; isCanary: boolea
   return { authorized: constantTimeEquals(token, expected), isCanary: false };
 }
 
-export function createRouter(engine: FaceEngine, sessionSecret: string): Router {
+export function createRouter(
+  engine: FaceEngine,
+  sessionSecret: string,
+  webauthn: WebAuthnConfig = webAuthnFromOrigin("http://localhost:5173"),
+): Router {
   const router = Router();
 
   router.get("/health", (_req, res) => {
     res.json({ ok: true, mode: "face-only" });
+  });
+
+  router.get("/identities", (req, res) => {
+    if (!rateLimit("identities", req.ip ?? "local", 30, 60_000)) {
+      res.status(429).json({ error: "Demasiadas consultas. Espera un momento." });
+      return;
+    }
+    const names = engine.listDisplayNames();
+    res.json({ count: names.length, names });
+  });
+
+  router.delete("/identities", (req, res) => {
+    const { authorized, isCanary } = enrollAuthorized(req);
+    if (isCanary) {
+      handleCanaryAccess(bearerToken(req), req.ip ?? "local");
+      res.status(401).json({ error: "No autorizado." });
+      return;
+    }
+    if (!authorized) {
+      res.status(401).json({ error: "No autorizado." });
+      return;
+    }
+    if (!rateLimit("identities-clear", req.ip ?? "local", 6, 60_000)) {
+      res.status(429).json({ error: "Demasiados borrados. Espera un momento." });
+      return;
+    }
+    const removed = engine.clearGallery();
+    res.json({ ok: true, removed });
   });
 
   router.get("/voice/challenge", (req, res) => {
@@ -164,6 +216,68 @@ export function createRouter(engine: FaceEngine, sessionSecret: string): Router 
       return;
     }
     res.json(issueVoiceChallenge());
+  });
+
+  router.get("/webauthn/register/options", async (req, res) => {
+    const token = bearerToken(req);
+    if (!token) {
+      res.status(401).json({ error: "Sesión ausente." });
+      return;
+    }
+    try {
+      const session = await readSession(sessionSecret, token);
+      const options = await registrationOptions(
+        webauthn,
+        { id: session.sub, name: session.name || session.sub },
+        engine.listPasskeys(session.sub),
+      );
+      res.json(options);
+    } catch {
+      res.status(401).json({ error: "Sesión inválida o caducada." });
+    }
+  });
+
+  router.post("/webauthn/register", async (req, res) => {
+    const token = bearerToken(req);
+    if (!token) {
+      res.status(401).json({ error: "Sesión ausente." });
+      return;
+    }
+    const parsed = z
+      .object({
+        ticket: z.string().trim().min(8).max(128),
+        credential: z.object({ id: z.string().min(8) }).passthrough(),
+      })
+      .safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Respuesta de passkey inválida." });
+      return;
+    }
+    try {
+      const session = await readSession(sessionSecret, token);
+      const passkey = await verifyRegistration(
+        webauthn,
+        parsed.data.ticket,
+        session.sub,
+        parsed.data.credential as never,
+      );
+      if (!passkey) {
+        res.status(401).json({ error: "No se pudo verificar la passkey." });
+        return;
+      }
+      engine.addPasskey(session.sub, passkey);
+      res.json({ ok: true, id: passkey.id });
+    } catch {
+      res.status(401).json({ error: "Sesión inválida o caducada." });
+    }
+  });
+
+  router.get("/webauthn/authenticate/options", async (req, res) => {
+    if (!rateLimit("webauthn", req.ip ?? "local", 20, 60_000)) {
+      res.status(429).json({ error: "Demasiados desafíos. Espera un momento." });
+      return;
+    }
+    res.json(await authenticationOptions(webauthn));
   });
 
   router.get("/challenge", (req, res) => {
@@ -295,17 +409,28 @@ export function createRouter(engine: FaceEngine, sessionSecret: string): Router 
             verifyDeviceSignature(known?.publicKey ?? proof.publicKey, proof.nonce, proof.signature),
         );
       const trustedDevice = Boolean(known && signed);
-      const voice = parsed.data.voice;
-      const voiceOk = Boolean(voice && consumeVoiceChallenge(voice.id, voice.transcript));
-      if (!trustedDevice && !voiceOk) {
-        res.status(403).json({
-          error: "Di las tres palabras para confirmar que eres tú.",
-          code: "VOICE_REQUIRED",
-        });
-        return;
+      let passkeyOk = false;
+      const submitted = parsed.data.passkey;
+      if (submitted) {
+        const found = engine.findPasskey(submitted.assertion.id);
+        if (found && found.identityId === decision.identityId) {
+          const checked = await verifyAuthentication(
+            webauthn,
+            submitted.ticket,
+            submitted.assertion as never,
+            found.passkey,
+          );
+          if (checked.ok) {
+            passkeyOk = true;
+            engine.updatePasskeyCounter(found.identityId, found.passkey.id, checked.counter);
+          }
+        }
       }
-      if (voice && !voiceOk) {
-        res.status(401).json({ error: "Las palabras no coinciden." });
+      if (!trustedDevice && !passkeyOk) {
+        res.status(403).json({
+          error: "Confirma con la llave de este aparato o una passkey. El texto de las palabras no basta.",
+          code: "PASSKEY_REQUIRED",
+        });
         return;
       }
       if (trustedDevice && proof) engine.touchDevice(decision.identityId, proof.id);

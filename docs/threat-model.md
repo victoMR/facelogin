@@ -35,7 +35,7 @@
 ```
 
 - **Cliente no es TCB.** Cualquier chequeo solo-en-browser (parpadeo, yaw) es UX, no control.
-- **Servidor confía hoy en vectores.** Quien tenga un descriptor válido (o lo fabrique) puede pegarle a `/identify` sin cámara.
+- **Servidor ya no abre sesión solo con vectores.** Hace falta la cara y una firma de dispositivo o una passkey. El liveness del navegador sigue sin ser TCB.
 
 ---
 
@@ -43,7 +43,7 @@
 
 | ID | Amenaza | STRIDE | Severidad hoy | Mitigación actual | Estado |
 | --- | --- | --- | --- | --- | --- |
-| **T1** | Bypass de liveness: `curl` / cliente instrumentado manda descriptores | Spoofing | **Crítica** | Ninguna verificable en server | **Abierto — bloquea “nivel banco”** |
+| **T1** | Bypass de liveness: descriptor o transcript sin firma | Spoofing | Alta | Device ECDSA o WebAuthn verificados en server | Mitigado para descriptor suelto; portátil robado sigue abierto |
 | **T2** | Presentación (foto/video/máscara) ante webcam real | Spoofing | Alta | Liveness 2D activo en cliente | Parcial (evitable) |
 | **T3** | Impostor 1:N (cara parecida / umbral flojo) | Spoofing | Alta→Media | Umbral calibrado LFW, FPIR target, tests openset | Mitigado medido; re-eval continua |
 | **T4** | Oráculo de score en identify fallido | Info disclosure | Media | Body opaco en 401; score solo en éxito / logs server | Mitigado en API pública |

@@ -1,21 +1,30 @@
 import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
 import {
+  clearIdentities,
   enroll,
   identify,
+  listIdentities,
   me,
   oidcApprove,
   oidcDeny,
   oidcRequest,
   trustDevice,
+  ApiError,
   MAX_LOGIN_DESCRIPTORS,
   type ConditionSamples,
   type EnrollResult,
   type IdentifyResult,
   type OidcRequestInfo,
-  type VoiceProof,
 } from "./api";
+import { authenticatePasskey, passkeySupported, registerPasskey } from "./passkey";
 import type { Capture } from "./FaceCapture";
-import { deviceProof, ensureDevice, isDeviceTrustedLocally, markDeviceTrustedLocally } from "./device";
+import {
+  clearDeviceTrustLocally,
+  deviceProof,
+  ensureDevice,
+  isDeviceTrustedLocally,
+  markDeviceTrustedLocally,
+} from "./device";
 import { meanShape, SHAPE_DIM } from "./mesh";
 import {
   enrollChallenges,
@@ -213,6 +222,8 @@ export function App() {
   const [enrolled, setEnrolled] = useState<EnrollResult | null>(null);
   const [oidc, setOidc] = useState<OidcRequestInfo | null>(null);
   const [pendingTrust, setPendingTrust] = useState<PendingTrust | null>(null);
+  const [gallery, setGallery] = useState<{ count: number; names: string[] }>({ count: 0, names: [] });
+  const [wiping, setWiping] = useState(false);
 
   // Condiciones del enrollo en curso: una sola, o con lentes + sin lentes.
   const conditions: EnrollCondition[] = glasses ? GLASSES_CONDITIONS : SINGLE_CONDITION;
@@ -240,6 +251,10 @@ export function App() {
       return;
     }
 
+    void listIdentities()
+      .then(setGallery)
+      .catch(() => setGallery({ count: 0, names: [] }));
+
     const token = localStorage.getItem("facelogin.token");
     if (!token) return;
     me(token)
@@ -250,20 +265,53 @@ export function App() {
       .catch(() => localStorage.removeItem("facelogin.token"));
   }, []);
 
+  function refreshGallery() {
+    void listIdentities()
+      .then(setGallery)
+      .catch(() => setGallery({ count: 0, names: [] }));
+  }
+
   function goHome() {
     setError("");
     setPendingTrust(null);
     setMode("home");
+    refreshGallery();
   }
 
-  async function identifyWithDevice(captures: Capture[], voice?: VoiceProof) {
+  async function wipeGallery() {
+    if (wiping) return;
+    setWiping(true);
+    setError("");
+    try {
+      await clearIdentities();
+      clearDeviceTrustLocally();
+      localStorage.removeItem("facelogin.token");
+      setSession(null);
+      setEnrolled(null);
+      setGallery({ count: 0, names: [] });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "No se pudieron borrar los rostros.");
+    } finally {
+      setWiping(false);
+    }
+  }
+
+  async function identifyWithDevice(captures: Capture[]) {
     let proof;
     try {
       proof = await deviceProof();
     } catch {
       proof = undefined;
     }
-    return identify(bestLoginDescriptors(captures), captureShape(captures), proof, voice);
+    const descriptors = bestLoginDescriptors(captures);
+    const shape = captureShape(captures);
+    try {
+      return await identify(descriptors, shape, proof);
+    } catch (error) {
+      if (!(error instanceof ApiError) || error.code !== "PASSKEY_REQUIRED") throw error;
+      const passkey = await authenticatePasskey();
+      return identify(descriptors, shape, proof, passkey);
+    }
   }
 
   async function openSession(result: IdentifyResult) {
@@ -321,6 +369,10 @@ export function App() {
             error={error}
             onError={setError}
             onCancel={goHome}
+            onLogin={() => {
+              setError("");
+              setMode("login");
+            }}
             onComplete={async (captures) => {
               let device;
               try {
@@ -352,10 +404,10 @@ export function App() {
             forceVoice={!isDeviceTrustedLocally()}
             onError={setError}
             onCancel={() => void cancelOidc()}
-            onComplete={async (captures, voice) => {
+            onComplete={async (captures) => {
               // El descriptor va a /api/identify y se queda ahí. Lo que vuelve al
               // servicio cliente es un código, y luego un id_token firmado.
-              const { token } = await identifyWithDevice(captures, voice);
+              const { token } = await identifyWithDevice(captures);
               const { redirect } = await oidcApprove(OIDC_REQUEST_ID, token);
               window.location.replace(redirect);
               // La navegación tarda un instante; sin esto la pantalla parpadea al
@@ -381,8 +433,8 @@ export function App() {
             forceVoice={!isDeviceTrustedLocally()}
             onError={setError}
             onCancel={goHome}
-            onComplete={async (captures, voice) => {
-              const result = await identifyWithDevice(captures, voice);
+            onComplete={async (captures) => {
+              const result = await identifyWithDevice(captures);
               await openSession(result);
             }}
           />
@@ -474,6 +526,18 @@ export function App() {
             >
               Ya me registré, entrar
             </button>
+            {gallery.count > 0 && (
+              <p className="home__vault">
+                Hay {gallery.count === 1 ? "1 rostro guardado" : `${gallery.count} rostros guardados`}
+                {gallery.names[0] ? ` (${gallery.names.join(", ")})` : ""}. Borrar el archivo a mano
+                no basta: el servidor lo sigue teniendo en memoria.
+              </p>
+            )}
+            {gallery.count > 0 && (
+              <button className="btn btn--quiet" disabled={wiping} onClick={() => void wipeGallery()}>
+                {wiping ? "Borrando…" : "Borrar todos los rostros"}
+              </button>
+            )}
           </div>
         </Screen>
       )}
@@ -675,9 +739,21 @@ export function App() {
           <p className="body">
             {isDeviceTrustedLocally()
               ? "Este aparato es de confianza. La próxima vez basta con mirar."
-              : "Entraste con tu rostro."}
+              : "Entraste con tu rostro. Añade una passkey si vas a usar otro aparato."}
           </p>
           <div className="stack">
+            {passkeySupported() && (
+              <button
+                className="btn"
+                onClick={() => {
+                  void registerPasskey(session.token).catch((cause: Error) => {
+                    setError(cause.message || "No se pudo guardar la passkey.");
+                  });
+                }}
+              >
+                Añadir passkey (otros aparatos)
+              </button>
+            )}
             <button
               className="btn"
               onClick={() => {

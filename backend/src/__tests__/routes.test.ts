@@ -23,9 +23,12 @@ function l2Normalize(vec: number[]): number[] {
 }
 
 function cluster(anchor: number, c: number, count: number): number[][] {
-  return Array.from({ length: count }, (_, i) =>
-    l2Normalize([...basis(anchor).map((v) => v * Math.sqrt(c)), ...basis(anchor + 1 + i).map((v) => v * Math.sqrt(1 - c))].slice(0, DIM)),
-  );
+  return Array.from({ length: count }, (_, i) => {
+    const vector = new Array<number>(DIM).fill(0);
+    vector[anchor] = Math.sqrt(c);
+    vector[anchor + 1 + i] = Math.sqrt(1 - c);
+    return l2Normalize(vector);
+  });
 }
 
 function newEngine(): FaceEngine {
@@ -181,9 +184,32 @@ test("POST /identify rechaza sin descriptor", async () => {
   } as any;
   const next = () => {};
   const handler = router.stack.find((layer: any) => layer.route?.path === "/identify")?.route?.stack[0]?.handle;
-  if (handler) handler(req, res, next);
+  if (handler) await handler(req, res, next);
   assert.equal(status, 400);
   assert.ok(body.error);
+});
+
+test("POST /enroll exige la malla de 64 dimensiones", async () => {
+  resetRateLimits();
+  const engine = newEngine();
+  const router = createRouter(engine, "session-secret");
+  let status = 200;
+  const req = {
+    method: "POST",
+    url: "/enroll",
+    ip: "test",
+    body: { displayName: "Ana", samples: cluster(0, 0.97, 5) },
+  } as any;
+  const res = {
+    status: (code: number) => {
+      status = code;
+      return res;
+    },
+    json: () => {},
+  } as any;
+  const handler = router.stack.find((layer: any) => layer.route?.path === "/enroll")?.route?.stack[0]?.handle;
+  if (handler) handler(req, res, () => {});
+  assert.equal(status, 400);
 });
 
 test("POST /identify rechaza galería vacía con 401", async () => {
@@ -201,6 +227,37 @@ test("POST /identify rechaza galería vacía con 401", async () => {
   } as any;
   const next = () => {};
   const handler = router.stack.find((layer: any) => layer.route?.path === "/identify")?.route?.stack[0]?.handle;
-  if (handler) handler(req, res, next);
+  if (handler) await handler(req, res, next);
   assert.equal(status, 401);
+});
+
+test("POST /identify no entrega JWT con solo la cara o un transcript", async () => {
+  resetRateLimits();
+  const engine = newEngine();
+  engine.enroll("Ana", cluster(0, 0.97, 5));
+  const router = createRouter(engine, "session-secret");
+  let status = 200;
+  let body: any = null;
+  const req = {
+    method: "POST",
+    url: "/identify",
+    ip: "test",
+    body: {
+      descriptor: cluster(0, 0.97, 5)[0],
+      voice: { id: "inventado", transcript: "rimbombante ajolote murciélago" },
+    },
+  } as any;
+  const res = {
+    status: (code: number) => {
+      status = code;
+      return res;
+    },
+    json: (data: any) => {
+      body = data;
+    },
+  } as any;
+  const handler = router.stack.find((layer: any) => layer.route?.path === "/identify")?.route?.stack[0]?.handle;
+  if (handler) await handler(req, res, () => {});
+  assert.equal(status, 403);
+  assert.equal(body.code, "PASSKEY_REQUIRED");
 });

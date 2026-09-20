@@ -142,13 +142,20 @@ export function ovalGeometry(width: number, height: number, insets: Insets = NO_
  * progreso tiene que empezar a llenarse desde arriba. Con dos arcos se controla
  * el punto de partida sin rotar nada (rotar una elipse intercambiaría los ejes).
  */
-/** Puntos alrededor del óvalo: a dónde mirar, como Face ID. */
+/** Puntos sobre el óvalo: a dónde mirar, como Face ID. Van EN el borde, no fuera. */
 export function glanceDots(oval: Oval): { id: "center" | "left" | "right"; x: number; y: number }[] {
   return [
-    { id: "center", x: oval.cx, y: oval.cy - oval.ry - 20 },
-    { id: "left", x: oval.cx - oval.rx - 20, y: oval.cy },
-    { id: "right", x: oval.cx + oval.rx + 20, y: oval.cy },
+    { id: "center", x: oval.cx, y: oval.cy - oval.ry },
+    { id: "left", x: oval.cx - oval.rx, y: oval.cy },
+    { id: "right", x: oval.cx + oval.rx, y: oval.cy },
   ];
+}
+
+/** Hecho en ESTA ronda, no en la sesión. Si no, la segunda cara sale toda verde. */
+export function glanceDotDone(id: "center" | "left" | "right", step: number): boolean {
+  if (id === "center") return step > 0;
+  if (id === "left") return step > 1;
+  return step > 2;
 }
 
 export function ovalPath({ cx, cy, rx, ry }: Oval): string {

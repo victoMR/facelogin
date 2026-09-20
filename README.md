@@ -6,7 +6,9 @@ Autenticación solo con tu cara. Sin contraseña.
 El navegador saca un descriptor; el servidor guarda una plantilla cifrada.
 Listo como IdP OIDC (PKCE) para demos e integraciones internas.
 
-> Demo / IdP interno — no es Face ID bancario. El liveness corre en el cliente.
+Licencia: [MIT](LICENSE).
+
+> Demo / IdP interno — no es Face ID bancario. El liveness corre en el cliente. El JWT exige la cara **y** una firma de dispositivo o una passkey; el texto de las palabras no abre sesión.
 
 ## Norte
 
@@ -546,17 +548,17 @@ Es, con diferencia, la mejor relación valor/coste de las dos vías: 1.66 MiB de
 
 Con dos advertencias que hay que decir en voz alta:
 
-- **Sigue siendo del lado cliente**, y este README ya explica en *Límites honestos* que el liveness del cliente no es un control de seguridad: `POST /api/identify` acepta 128 floats y no sabe si vinieron de una cámara. Un anti-spoofing en el navegador sube el listón para quien pone una foto delante de la webcam, y no hace absolutamente nada contra quien manda un descriptor con `curl`. Es una mejora de UX-seguridad, no un PAD.
+- **Sigue siendo del lado cliente**, y este README ya explica en *Límites honestos* que el liveness del cliente no es un control de seguridad: el descriptor solo no abre sesión, pero un anti-spoofing en el navegador no sustituye la firma del aparato ni la passkey. Es una mejora de UX-seguridad, no un PAD.
 - **No está certificado.** No es iBeta nivel 1/2, y no debería anunciarse como tal.
 
 ## Límites honestos
 
-- **El liveness es exclusivamente del lado cliente y por eso no es una defensa.** `POST /api/identify` acepta 128 floats y nada más. El parpadeo, el giro de cabeza y los gates de calidad (tamaño de caja, score de detección, encuadre) viven en el navegador y no dejan ninguna huella que el servidor pueda verificar: no hay que *engañarlos*, se saltan con un `curl` que mande un descriptor. Quien consiga un descriptor válido —de un vault filtrado, de un cliente instrumentado, o construido a mano— entra sin pasar por la cámara. Cerrar esto de verdad exige attestation del cliente, que en web no se puede hacer bien: la alternativa honesta es mover el matching al servidor sobre un frame firmado por un cliente en el que se confíe (app nativa con attestation de plataforma, o hardware dedicado). Este repo no hace ninguna de las dos.
-- **Como IdP, eso significa que un `id_token` de facelogin vale exactamente lo que vale un descriptor filtrado.** Todo el aparato OIDC —PKCE, RS256, códigos de un solo uso, `sub` pairwise— protege el *transporte* de la identidad entre facelogin y el servicio cliente. No protege el *origen*: quien tenga 128 floats válidos obtiene un token sin acercarse a una cámara. Por eso `docs/integracion-oidc.md` empieza diciéndolo, y por eso esto es un IdP interno o de demostración, no un proveedor público.
+- **El liveness es exclusivamente del lado cliente y por eso no es una defensa de origen.** El parpadeo, el giro, la malla y las palabras dichas viven en el navegador. El servidor **no** abre sesión con un descriptor ni con un `transcript` inventado: hace falta la cara **y** una firma de la llave del aparato o una aserción WebAuthn verificada. Quien solo tenga 128 floats recibe `403 PASSKEY_REQUIRED`.
+- **Como IdP, el `id_token` vale lo que valen la cara más el factor vinculante.** OIDC (PKCE, RS256, códigos de un solo uso, `sub` pairwise) protege el transporte. El origen ahora exige dispositivo de confianza o passkey; un portátil robado con la llave local sigue siendo un hueco. Por eso esto es un IdP interno o de demostración, no un proveedor público.
 - El rate limit (8 identify/min, 3 enroll/min por IP, 30 token/min) y el 401 opaco —sin `score` ni `threshold` en el body— acotan el hill-climbing sobre el endpoint, no lo eliminan: una IP rotativa sigue teniendo intentos.
 - Cámara 2D: una foto impresa o un vídeo engañan al liveness activo, y **no hay ninguna defensa contra presentación**. La opción barata evaluada (MiniFASNetV2 ONNX, 1.66 MiB) está en *Qué vendría después*; para producción de verdad hace falta PAD de nivel iBeta o profundidad.
 - **FaceNet 128 no es el techo NIST 2024–2026**, y ahora está cuantificado: EER 3.49 % sobre LFW con nuestro propio pipeline. ArcFace 512 separa bastante mejor, pero `buffalo_l` pesa 166 MB y no cabe en el piso de hardware de este repo; el candidato realista es `buffalo_s`. Ver *Qué vendría después*.
 - **Hay un piso de hardware.** Un navegador sin WebGL y sin WASM+SIMD, en un equipo lento, tarda ~29 s de congelación pura en completar el enrollo y muestra la cámara a 2.2 fps. La app lo detecta, lo dice y baja todo lo que puede bajar, pero no lo arregla: arreglarlo de verdad exigiría mandar el frame al servidor, y eso rompe el punto 1 de este README. Los números están en *¿Hay un piso de hardware?*.
 - El vault vive en disco local. En un servicio real iría a KMS + store aislado, y el match 1:N se auditaría por demografía (sesgo).
 
-Eso no cambia el contrato de este repo: **una sola puerta, la cara**, con plantillas cifradas y un umbral que se gana en el enrollo, no que se inventa a ojo.
+Eso no cambia el contrato de este repo: **la cara abre la puerta, el aparato o la passkey la firman**, con plantillas cifradas y un umbral que se gana en el enrollo, no que se inventa a ojo.

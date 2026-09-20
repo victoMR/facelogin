@@ -20,16 +20,49 @@ import { parseClients, type OidcClient } from "../oidc/clients.js";
 import { generatePrivateKeyMaterial, loadKeyRing } from "../oidc/keys.js";
 import { OidcProvider, type ProviderOptions } from "../oidc/provider.js";
 import { resetRateLimits } from "../routes.js";
+import { publicKeyId } from "../devices.js";
 import { signSession } from "../session.js";
 import { VaultStore } from "../store.js";
-import { issueVoiceChallenge } from "../words.js";
 import { makePersona, rng } from "./synthetic.js";
 
-function withVoice<T extends Record<string, unknown>>(body: T) {
-  const challenge = issueVoiceChallenge();
+async function makeDevice() {
+  const keys = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, [
+    "sign",
+    "verify",
+  ]);
+  const spki = await crypto.subtle.exportKey("spki", keys.publicKey);
+  const publicKey = Buffer.from(spki).toString("base64");
+  return {
+    id: publicKeyId(publicKey),
+    publicKey,
+    label: "test",
+    async sign(nonce: string) {
+      const signature = await crypto.subtle.sign(
+        { name: "ECDSA", hash: "SHA-256" },
+        keys.privateKey,
+        new TextEncoder().encode(nonce),
+      );
+      return Buffer.from(signature).toString("base64");
+    },
+  };
+}
+
+async function withDevice<T extends Record<string, unknown>>(
+  base: string,
+  device: Awaited<ReturnType<typeof makeDevice>>,
+  body: T,
+) {
+  const challenge = await fetch(`${base}/api/device/challenge`);
+  const { nonce } = (await challenge.json()) as { nonce: string };
   return {
     ...body,
-    voice: { id: challenge.id, transcript: challenge.words.join(" ") },
+    device: {
+      id: device.id,
+      publicKey: device.publicKey,
+      label: device.label,
+      nonce,
+      signature: await device.sign(nonce),
+    },
   };
 }
 
@@ -62,6 +95,7 @@ type Harness = {
   provider: OidcProvider;
   identityId: string;
   descriptor: number[];
+  device: Awaited<ReturnType<typeof makeDevice>>;
   close: () => Promise<void>;
 };
 
@@ -94,7 +128,12 @@ async function harness(overrides: Partial<ProviderOptions> = {}, clients: unknow
     conditionCount: 1,
   });
   const samples = persona.samplesByCondition[0];
-  const template = engine.enroll("Ana Prueba", samples);
+  const device = await makeDevice();
+  const template = engine.enroll("Ana Prueba", samples, undefined, {
+    id: device.id,
+    publicKey: device.publicKey,
+    label: device.label,
+  });
 
   const parsed: OidcClient[] = parseClients(clients);
   const port = await freePort();
@@ -123,6 +162,7 @@ async function harness(overrides: Partial<ProviderOptions> = {}, clients: unknow
     provider,
     identityId: template.id,
     descriptor: samples[0],
+    device,
     close: () => new Promise<void>((resolve) => server.close(() => resolve())),
   };
 }
@@ -176,7 +216,7 @@ async function runAuthorization(
     const identified = await fetch(`${h.base}/api/identify`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(withVoice({ descriptor: h.descriptor })),
+      body: JSON.stringify(await withDevice(h.base, h.device, { descriptor: h.descriptor })),
     });
     sessionToken = (await expectJson<{ token: string }>(identified, 200)).token;
   } else {
@@ -829,6 +869,9 @@ test("una sesión vieja no sirve para un cliente OIDC: la autenticación tiene q
     // JWT de sesión válido (8 h) pero emitido hace más del max_age por defecto.
     const viejo = await new (await import("jose")).SignJWT({ sub: h.identityId, name: "Ana Prueba" })
       .setProtectedHeader({ alg: "HS256" })
+      .setIssuer("facelogin")
+      .setAudience("facelogin-app")
+      .setJti("sesion-vieja-de-prueba")
       .setIssuedAt(Math.floor(Date.now() / 1000) - 3600)
       .setExpirationTime("8h")
       .sign(new TextEncoder().encode("sesion-de-pruebas"));
@@ -932,7 +975,7 @@ test("el enrollo y el login propios siguen intactos con el IdP encendido", async
     const identified = await fetch(`${h.base}/api/identify`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(withVoice({ descriptor: h.descriptor })),
+      body: JSON.stringify(await withDevice(h.base, h.device, { descriptor: h.descriptor })),
     });
     assert.equal(identified.status, 200);
     const { token, identity } = (await identified.json()) as {

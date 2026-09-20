@@ -9,6 +9,7 @@
 import cors from "cors";
 import express from "express";
 import type { FaceEngine } from "./engine.js";
+import { webAuthnFromOrigin } from "./passkeys.js";
 import { createRouter } from "./routes.js";
 import { createOidcAppRouter, createOidcRouter } from "./oidc/router.js";
 import type { OidcProvider } from "./oidc/provider.js";
@@ -51,7 +52,7 @@ export function createApp(options: AppOptions): express.Express {
   if (options.provider) {
     app.use("/api/oidc", createOidcAppRouter(options.provider, options.sessionSecret));
   }
-  app.use("/api", createRouter(options.engine, options.sessionSecret));
+  app.use("/api", createRouter(options.engine, options.sessionSecret, webAuthnFromOrigin(options.appOrigin)));
 
   return app;
 }

@@ -59,6 +59,15 @@ test("signSession usa HS256", async () => {
   assert.equal(header.alg, "HS256");
 });
 
+test("signSession incluye iss, aud y jti", async () => {
+  const token = await signSession(SECRET, { sub: "user-123", name: "Test" });
+  const session = await readSession(SECRET, token);
+  const payload = JSON.parse(Buffer.from(token.split(".")[1], "base64url").toString());
+  assert.equal(payload.iss, "facelogin");
+  assert.equal(payload.aud, "facelogin-app");
+  assert.ok(session.jti.length > 8);
+});
+
 test("signSession incluye exp para 8h", async () => {
   const token = await signSession(SECRET, { sub: "user-123", name: "Test" });
   const session = await readSession(SECRET, token);

@@ -279,17 +279,14 @@ Honestidad sobre el estado real, no lista de deseos.
 
 ### El liveness es solo del lado cliente, y por eso no es una defensa
 
-`POST /api/identify` acepta 128 floats y nada más. El parpadeo, el giro de cabeza y los gates de
-calidad viven en el navegador y no dejan ninguna huella que el servidor pueda verificar: **no hay
-que engañarlos, se saltan con un `curl`**. Quien consiga un descriptor válido entra sin pasar por
-una cámara.
+`POST /api/identify` ya no abre sesión con 128 floats ni con un `transcript`. El JWT exige la cara
+y una firma de dispositivo o una aserción WebAuthn. El liveness del navegador sigue siendo UX.
 
-Cerrarlo de verdad exige attestation del cliente —que en web no se puede hacer bien— o mover el
-matching al servidor sobre un frame firmado por un cliente de confianza (app nativa, hardware
-dedicado). Este repo no hace ninguna de las dos.
+Eso no iguala Face ID: un aparato robado con la llave local, o un vídeo ante la webcam de un
+aparato de confianza, siguen siendo huecos. Por eso esto es IdP interno o de demostración.
 
-**Mientras eso siga así, esto sirve como IdP interno o de demostración, no como proveedor
-público.** Todo el aparato OIDC protege el *transporte* de la identidad, no su *origen*.
+**El aparato OIDC protege el transporte.** El origen ahora pide un factor vinculante verificable
+en servidor; no pide attestation de cámara.
 
 ### Otros pendientes
 

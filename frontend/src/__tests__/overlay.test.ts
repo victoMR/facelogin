@@ -69,3 +69,17 @@ test("Insets default son cero", () => {
   assert.equal(defaultInsets.top, 0);
   assert.equal(defaultInsets.bottom, 0);
 });
+
+test("glanceDotDone usa el paso de ESTA ronda, no el total de capturas", () => {
+  const done = (id: "center" | "left" | "right", step: number) =>
+    id === "center" ? step > 0 : id === "left" ? step > 1 : step > 2;
+  assert.equal(done("center", 0), false);
+  assert.equal(done("left", 0), false);
+  assert.equal(done("right", 0), false);
+  assert.equal(done("center", 1), true);
+  assert.equal(done("left", 1), false);
+  assert.equal(done("right", 2), false);
+  assert.equal(done("left", 2), true);
+  // 3 capturas de la ronda anterior no pintan esta: el paso vuelve a 0.
+  assert.equal(done("center", 0), false);
+});

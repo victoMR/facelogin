@@ -108,6 +108,17 @@ test("la caché evita releer disco y se invalida en cada save", () => {
   assert.equal(written.templates.length, 2);
 });
 
+test("clear vacía disco y caché", () => {
+  const path = tempVaultPath();
+  const store = new VaultStore(path);
+  store.upsert(fakeTemplate("uno"), ["k1-uno"]);
+  assert.equal(store.all().length, 1);
+  store.clear();
+  assert.equal(store.all().length, 0);
+  const written = JSON.parse(readFileSync(path, "utf8")) as VaultFile;
+  assert.deepEqual(written.templates, []);
+});
+
 test("candidates devuelve solo las identidades de las cubetas consultadas", () => {
   const path = tempVaultPath();
   const store = new VaultStore(path);

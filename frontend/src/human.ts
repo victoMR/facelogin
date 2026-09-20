@@ -14,7 +14,7 @@
 
 export const HUMAN_CAPTCHA_SCORE = 0.52;
 export const ENROLL_CAPTCHA_SCORE = 0.35;
-export const WORD_MOUTH_SPAN = 0.14;
+export const WORD_MOUTH_SPAN = 0.08;
 
 export type HumanSignals = {
   yawSpan: number;
@@ -101,15 +101,23 @@ export function foldSpeech(text: string): string {
  * Si tiene 10+ letras, basta un tronco largo y único.
  */
 export function wordHeard(transcript: string, word: string): boolean {
-  const hay = foldSpeech(transcript);
+  const compact = foldSpeech(transcript).replace(/\s/g, "");
   const needle = foldSpeech(word).replace(/\s/g, "");
-  if (!needle) return false;
-  if (hay.replace(/\s/g, "").includes(needle)) return true;
-  if (needle.length >= 10) {
-    const stem = needle.slice(0, Math.max(8, Math.floor(needle.length * 0.55)));
-    return hay.replace(/\s/g, "").includes(stem);
+  if (!needle || compact.length < 3) return false;
+  if (compact.includes(needle)) return true;
+  const stemLen = needle.length >= 10 ? Math.max(8, Math.floor(needle.length * 0.55)) : Math.min(6, needle.length);
+  return compact.includes(needle.slice(0, stemLen));
+}
+
+/** Quita repeticiones del reconocedor para pintar «Te oigo» sin ruido. */
+export function lastHeard(transcript: string): string {
+  const tokens = transcript.trim().split(/\s+/).filter(Boolean);
+  const compact: string[] = [];
+  for (const token of tokens) {
+    const prev = compact[compact.length - 1];
+    if (!prev || foldSpeech(prev) !== foldSpeech(token)) compact.push(token);
   }
-  return hay.split(" ").includes(needle);
+  return compact.slice(-6).join(" ");
 }
 
 export function wordsHeard(transcript: string, words: string[]): boolean[] {

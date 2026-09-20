@@ -110,11 +110,26 @@ export function enroll(
  */
 export const MAX_LOGIN_DESCRIPTORS = 3;
 
+export type PasskeyAssertion = {
+  ticket: string;
+  assertion: {
+    id: string;
+    rawId: string;
+    type: "public-key";
+    response: {
+      clientDataJSON: string;
+      authenticatorData: string;
+      signature: string;
+      userHandle?: string;
+    };
+  };
+};
+
 export function identify(
   descriptors: number[][],
   shape?: number[],
   device?: DeviceProof,
-  voice?: VoiceProof,
+  passkey?: PasskeyAssertion,
 ): Promise<IdentifyResult> {
   return request("/api/identify", {
     method: "POST",
@@ -122,9 +137,32 @@ export function identify(
       descriptors: descriptors.slice(0, MAX_LOGIN_DESCRIPTORS),
       shape,
       device,
-      voice,
+      passkey,
     }),
   });
+}
+
+export function passkeyRegisterOptions(
+  token: string,
+): Promise<{ ticket: string; options: Record<string, unknown> }> {
+  return request("/api/webauthn/register/options", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+export function passkeyRegister(
+  token: string,
+  body: { ticket: string; credential: unknown },
+): Promise<{ ok: boolean; id: string }> {
+  return request("/api/webauthn/register", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(body),
+  });
+}
+
+export function passkeyAuthenticateOptions(): Promise<{ ticket: string; options: Record<string, unknown> }> {
+  return request("/api/webauthn/authenticate/options");
 }
 
 export function trustDevice(token: string, device: DeviceInfo): Promise<{ id: string; label: string; trusted: boolean }> {
@@ -141,6 +179,14 @@ export function listDevices(
   return request("/api/devices", {
     headers: { Authorization: `Bearer ${token}` },
   });
+}
+
+export function listIdentities(): Promise<{ count: number; names: string[] }> {
+  return request("/api/identities");
+}
+
+export function clearIdentities(): Promise<{ ok: boolean; removed: number }> {
+  return request("/api/identities", { method: "DELETE" });
 }
 
 export function me(token: string): Promise<{ id: string; displayName: string }> {

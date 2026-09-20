@@ -6,6 +6,7 @@ import {
   SpanTracker,
   foldSpeech,
   humanConfidence,
+  lastHeard,
   wordHeard,
   wordsHeard,
 } from "../human";
@@ -66,6 +67,13 @@ test("foldSpeech quita acentos y mayúsculas", () => {
 test("wordHeard acepta el tronco de palabras muy largas", () => {
   assert.equal(wordHeard("el otorrinolaringo algo", "otorrinolaringólogo"), true);
   assert.equal(wordHeard("hola mundo", "rimbombante"), false);
+  assert.equal(wordHeard("dije barbacoa", "barbacoa"), true);
+  assert.equal(wordHeard("HipopótamoHipopótamoHipopótamo", "hipopótamo"), true);
+});
+
+test("lastHeard quita repeticiones del reconocedor", () => {
+  assert.equal(lastHeard("Hipopótamo Hipopótamo Hipopótamo"), "Hipopótamo");
+  assert.equal(lastHeard("dije barbacoa"), "dije barbacoa");
 });
 
 test("wordsHeard marca cada palabra del reto", () => {

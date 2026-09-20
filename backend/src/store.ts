@@ -73,6 +73,11 @@ export class VaultStore {
     return this.load().templates;
   }
 
+  /** Vacía el vault en disco y en la caché del proceso. Borrar el archivo a mano no basta. */
+  clear(): void {
+    this.save(emptyVault());
+  }
+
   private readFromDisk(): VaultFile {
     let raw: string;
     try {

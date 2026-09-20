@@ -65,20 +65,21 @@ El sistema tiene implementado código de seguridad avanzado (honeypots, challeng
 ### Enroll
 1. Frontend captura 5 gestos (frente, parpadeo, giros)
 2. Frontend extrae descriptores con face-api en el navegador
-3. POST /api/enroll con `{ displayName, conditions: [{ label, samples }] }`
+3. POST /api/enroll con `{ displayName, conditions, shape[64], device? }` (la malla es obligatoria)
 4. Backend calcula umbral adaptativo, cifra plantilla, indexa en LSH
 5. Retorna metadata (ID, nombre, umbral, métricas) SIN datos cifrados
 
 ### Identify
 1. Frontend captura frente + parpadeo
 2. Frontend extrae descriptores (envía los 3 mejores por calidad)
-3. POST /api/identify con `{ descriptors: [[...], [...], [...]] }`
+3. POST /api/identify con descriptores, malla opcional (obligatoria si la plantilla la tiene) y prueba de dispositivo o passkey
 4. Backend busca en índice LSH (multi-probe Hamming-1)
 5. Descifra solo candidatos, calcula score vs umbral adaptativo
-6. Si match: retorna JWT + identity + métricas
-7. Si no match: retorna 401 opaco (sin decir qué tan cerca estuvo)
+6. Si la cara coincide pero no hay firma de aparato ni passkey: 403 `PASSKEY_REQUIRED`
+7. Si match + factor vinculante: retorna JWT + identity + métricas
+8. Si no match: retorna 401 opaco (sin decir qué tan cerca estuvo)
 
-**Sin challenge:** El identify acepta descriptores desnudos, no requiere challenge previo
+El `transcript` de voz no autoriza el JWT. El HMAC challenge del descriptor sigue desactivado.
 
 ## Tests
 

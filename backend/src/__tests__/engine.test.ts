@@ -51,6 +51,16 @@ function clusterAround(center: number[], c: number, count: number, spreadFrom: n
   );
 }
 
+test("tras vaciar el vault la misma cara puede enrolarse otra vez", () => {
+  const { engine, store } = newEngine();
+  engine.enroll("Ana", cluster(0, 0.97, 5));
+  assert.equal(engine.clearGallery(), 1);
+  assert.equal(store.all().length, 0);
+  const again = engine.enroll("Ana", cluster(0, 0.97, 5));
+  assert.equal(again.displayName, "Ana");
+  assert.equal(store.all().length, 1);
+});
+
 test("un segundo enrollo de la misma cara se rechaza", () => {
   const { engine } = newEngine();
   engine.enroll("Ana", cluster(0, 0.97, 5));
@@ -212,6 +222,14 @@ test("identify acepta la misma malla y rechaza otra geometría", () => {
   const probe = l2Normalize(combine([[0, 0.95], [40, Math.sqrt(1 - 0.95 ** 2)]]));
   assert.equal(engine.identify(probe, shape(1)).matched, true);
   assert.equal(engine.identify(probe, shape(9)).matched, false);
+});
+
+test("una plantilla nueva con malla exige malla en el login", () => {
+  const { engine } = newEngine();
+  engine.enroll("Ana", cluster(0, 0.97, 5), shape(1));
+  const probe = l2Normalize(combine([[0, 0.95], [40, Math.sqrt(1 - 0.95 ** 2)]]));
+  assert.equal(engine.identify(probe).matched, false);
+  assert.equal(engine.identify(probe, shape(1)).matched, true);
 });
 
 test("identify sin malla sigue funcionando en plantillas viejas", () => {

@@ -60,6 +60,8 @@ export type FaceTemplate = {
    * nunca se guarda aquí.
    */
   devices?: import("./devices.js").TrustedDevice[];
+  /** Credenciales WebAuthn. La privada no sale del autenticador. */
+  passkeys?: import("./passkeys.js").StoredPasskey[];
   /**
    * Forma anterior a los sub-clusters (vaults ya escritos en disco). El motor
    * las convierte a una condición única al leerlas; no se escriben nunca más.

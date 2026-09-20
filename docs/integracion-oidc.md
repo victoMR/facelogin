@@ -8,9 +8,9 @@ Lo primero, porque condiciona todo lo demás:
 
 ## Antes de integrar: lee esto
 
-**El liveness de este sistema es exclusivamente del lado cliente.** `POST /api/identify` acepta 128 números en coma flotante y nada más. El parpadeo y el giro de cabeza que ve el usuario viven en el navegador y no dejan ninguna huella que el servidor pueda comprobar: **no se engañan, se saltan con un `curl`**. Cualquiera que tenga un descriptor válido —de un vault filtrado, de un cliente instrumentado, o construido a mano— obtiene un `id_token` de facelogin **sin pasar por una cámara**.
+**El liveness sigue siendo del lado cliente.** El parpadeo, el giro y las palabras dichas no autorizan el JWT. `POST /api/identify` exige la cara **y** una firma de la llave del aparato o una aserción WebAuthn verificada. Un descriptor solo, o un `transcript` con las palabras del challenge, responde `403 PASSKEY_REQUIRED`.
 
-Mientras eso no se cierre con *attestation* del cliente, o moviendo el matching al servidor sobre un frame firmado por un cliente en el que se confíe, **esto sirve como IdP interno o de demostración, no como proveedor público**. No lo pongas delante de dinero, de datos de terceros ni de nada que no puedas revertir.
+Eso cierra el acceso con solo 128 floats. No cierra un portátil robado con la llave local, ni un replay de vídeo ante una webcam real. **Sigue siendo un IdP interno o de demostración, no un proveedor público.** No lo pongas delante de dinero, de datos de terceros ni de nada que no puedas revertir.
 
 Un integrador tiene que poder tomar esa decisión con la información delante; por eso está aquí arriba y no en una nota al pie.
 
@@ -301,9 +301,8 @@ curl -s -D - -o /dev/null "$ISSUER/authorize?client_id=panel-demo\
 &code_challenge=$CHALLENGE&code_challenge_method=S256" | grep -i '^location'
 # location: http://localhost:5173/?oidc=SfE3OGkT82xzt...
 
-# 2) el usuario se identifica con la cara (esto lo hace la interfaz)
-TOKEN=$(curl -s -X POST $ISSUER/api/identify -H 'Content-Type: application/json' \
-  -d '{"descriptor":[...128 floats...]}' | jq -r .token)
+# 2) el usuario se identifica en la interfaz (cara + llave del aparato o passkey)
+# Un POST solo con el descriptor ya no entrega token: responde 403 PASSKEY_REQUIRED.
 
 # 3) la interfaz canjea la sesión facial por el código
 curl -s -X POST $ISSUER/api/oidc/approve -H 'Content-Type: application/json' \

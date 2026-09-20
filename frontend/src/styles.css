@@ -549,6 +549,9 @@ input {
 .capture__stage {
   position: absolute;
   inset: 0;
+  /* El anillo tiene z-index propio; si el escenario no crea contexto, ese
+     z-index gana a la tarjeta de «Sin lentes» y el óvalo la atraviesa. */
+  z-index: 0;
 }
 
 /* El vídeo se refleja para que el usuario se vea como en un espejo; el anillo
@@ -578,6 +581,7 @@ input {
 .capture__scrim {
   position: absolute;
   inset: 0;
+  z-index: 1;
   pointer-events: none;
   background:
     linear-gradient(to bottom, rgba(0, 0, 0, 0.45), transparent 22%),
@@ -587,6 +591,7 @@ input {
 .ring {
   position: absolute;
   inset: 0;
+  z-index: 2;
   width: 100%;
   height: 100%;
   pointer-events: none;
@@ -764,12 +769,25 @@ input {
   left: 0;
   right: 0;
   bottom: 0;
+  z-index: 5;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 6px;
   padding: 0 24px max(26px, calc(env(safe-area-inset-bottom) + 16px));
   text-align: center;
+}
+
+.capture__foot[data-voice] {
+  gap: 10px;
+}
+
+.capture__foot[data-voice] .capture__instruction {
+  max-width: 28ch;
+  min-height: 0;
+  align-items: center;
+  font-size: clamp(16px, 3.8vw, 20px);
+  font-weight: 500;
 }
 
 /*
@@ -803,17 +821,39 @@ input {
 /* Cuando la causa BLOQUEA, el titular ya no es el gesto sino el arreglo. Se
    marca con color, pero el color no es el mensaje: el texto ya cambió. */
 .glance__dot {
-  fill: rgba(255, 255, 255, 0.35);
-  stroke: none;
+  fill: rgba(255, 255, 255, 0.55);
+  stroke: rgba(0, 0, 0, 0.45);
+  stroke-width: 2;
 }
 
 .glance__dot[data-on] {
   fill: #fff;
-  filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.85));
+  stroke: #fff;
+  filter: drop-shadow(0 0 16px rgba(255, 255, 255, 1));
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: glance-pulse 900ms ease-in-out infinite;
 }
 
 .glance__dot[data-done] {
   fill: var(--ring-shot);
+  stroke: none;
+  filter: none;
+  animation: none;
+}
+
+@keyframes glance-pulse {
+  50% {
+    transform: scale(1.35);
+  }
+}
+
+.home__vault {
+  margin: 8px 0 0;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--secondary);
+  text-wrap: pretty;
 }
 
 .capture__instruction[data-blocking] {
@@ -929,13 +969,21 @@ input {
   position: absolute;
   left: 16px;
   right: 16px;
-  bottom: 18%;
+  top: 18%;
   z-index: 4;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   pointer-events: none;
+}
+
+.voice--foot {
+  position: static;
+  left: auto;
+  right: auto;
+  top: auto;
+  width: 100%;
 }
 
 .voice .btn {
@@ -943,22 +991,44 @@ input {
   width: min(100%, 16rem);
 }
 
-.voice__words {
+.voice__steps {
   list-style: none;
   margin: 0;
   padding: 0;
-  width: min(100%, 22rem);
   display: flex;
-  flex-direction: column;
   gap: 8px;
 }
 
+.voice__steps li {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.5);
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.voice__steps li[data-on] {
+  background: #fff;
+  color: #111;
+  box-shadow: 0 0 14px rgba(255, 255, 255, 0.7);
+}
+
+.voice__steps li[data-ok] {
+  background: rgba(48, 209, 88, 0.95);
+  color: #04210c;
+}
+
 .voice__word {
-  padding: 10px 14px;
-  border-radius: 14px;
-  background: rgba(0, 0, 0, 0.58);
+  margin: 0;
+  padding: 12px 18px;
+  border-radius: 16px;
+  background: rgba(0, 0, 0, 0.62);
   color: #fff;
-  font-size: clamp(20px, 5.2vw, 28px);
+  font-size: clamp(26px, 6.4vw, 36px);
   font-weight: 700;
   line-height: 1.15;
   letter-spacing: -0.03em;
@@ -969,6 +1039,25 @@ input {
 .voice__word[data-ok] {
   background: rgba(48, 209, 88, 0.88);
   color: #04210c;
+}
+
+.voice__meter {
+  width: min(100%, 16rem);
+  height: 6px;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.2);
+  overflow: hidden;
+}
+
+.voice__meter span {
+  display: block;
+  height: 100%;
+  background: #fff;
+  transition: width 160ms linear;
+}
+
+.voice__meter span[data-ok] {
+  background: #30d158;
 }
 
 .voice__hint {
@@ -984,9 +1073,23 @@ input {
   text-wrap: pretty;
 }
 
+.voice__hear {
+  margin: 0;
+  max-width: 22rem;
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.4);
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 12px;
+  line-height: 1.35;
+  text-align: center;
+  word-break: break-word;
+}
+
 .overlay {
   position: absolute;
   inset: 0;
+  z-index: 20;
   display: grid;
   place-items: center;
   padding: 24px;
