@@ -309,12 +309,19 @@ export function Admin({ onExit }: AdminProps) {
     try {
       proof = await deviceProof();
     } catch {
-      proof = undefined;
+      try {
+        await ensureDevice();
+        proof = await deviceProof();
+      } catch {
+        proof = undefined;
+      }
     }
     const descriptors = bestLoginDescriptors(captures);
     const shape = captureShape(captures);
     try {
-      return await identify(descriptors, shape, proof);
+      const result = await identify(descriptors, shape, proof);
+      if (result.trustedDevice || result.newDevice) markDeviceTrustedLocally();
+      return result;
     } catch (error) {
       if (!(error instanceof ApiError) || error.code !== "PASSKEY_REQUIRED") throw error;
       // Sin passkey registrada (caso típico del primer operador) no hay que

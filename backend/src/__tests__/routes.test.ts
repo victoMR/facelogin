@@ -5,6 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { deriveMasterKey } from "../crypto.js";
 import { FaceEngine } from "../engine.js";
+import { issueDeviceNonce, publicKeyId } from "../devices.js";
 import { createRouter, rateLimit, resetRateLimits } from "../routes.js";
 import { VaultStore } from "../store.js";
 
@@ -260,6 +261,57 @@ test("POST /identify no entrega JWT con solo la cara o un transcript", async () 
   if (handler) await handler(req, res, () => {});
   assert.equal(status, 403);
   assert.equal(body.code, "PASSKEY_REQUIRED");
+});
+
+test("POST /identify con cara y firma de aparato nuevo abre sesión sin passkey", async () => {
+  resetRateLimits();
+  const engine = newEngine();
+  engine.enroll("Ana", cluster(0, 0.97, 5));
+  const router = createRouter(engine, "session-secret");
+
+  const keys = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, [
+    "sign",
+    "verify",
+  ]);
+  const spki = await crypto.subtle.exportKey("spki", keys.publicKey);
+  const publicKey = Buffer.from(spki).toString("base64");
+  const id = publicKeyId(publicKey);
+  const nonce = issueDeviceNonce();
+  const signature = Buffer.from(
+    await crypto.subtle.sign(
+      { name: "ECDSA", hash: "SHA-256" },
+      keys.privateKey,
+      new TextEncoder().encode(nonce),
+    ),
+  ).toString("base64");
+
+  let status = 500;
+  let body: any = null;
+  const req = {
+    method: "POST",
+    url: "/identify",
+    ip: "test",
+    body: {
+      descriptor: cluster(0, 0.97, 5)[0],
+      device: { id, publicKey, label: "Phone", nonce, signature },
+    },
+  } as any;
+  const res = {
+    status: (code: number) => {
+      status = code;
+      return res;
+    },
+    json: (data: any) => {
+      body = data;
+      status = status === 500 ? 200 : status;
+    },
+  } as any;
+  const handler = router.stack.find((layer: any) => layer.route?.path === "/identify")?.route?.stack[0]?.handle;
+  if (handler) await handler(req, res, () => {});
+  assert.equal(status, 200);
+  assert.ok(body.token);
+  assert.equal(body.trustedDevice, true);
+  assert.equal(engine.listDevices(body.identity.id).length, 1);
 });
 
 test("GET /identities solo publica el recuento", async () => {

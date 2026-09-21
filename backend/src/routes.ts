@@ -545,13 +545,28 @@ export function createRouter(
 
       const proof = parsed.data.device;
       const known = deviceKnown(engine.listDevices(decision.identityId), proof?.id ?? "");
-      const signed =
-        Boolean(
-          proof &&
-            consumeDeviceNonce(proof.nonce) &&
-            verifyDeviceSignature(known?.publicKey ?? proof.publicKey, proof.nonce, proof.signature),
-        );
-      const trustedDevice = Boolean(known && signed);
+      const signed = Boolean(
+        proof &&
+          consumeDeviceNonce(proof.nonce) &&
+          verifyDeviceSignature(known?.publicKey ?? proof.publicKey, proof.nonce, proof.signature),
+      );
+
+      // Cara coincidió + el aparato firmó el nonce: ese aparato queda de confianza.
+      // Así el login con la cara (Tetris, etc.) no abre un diálogo de passkey al final.
+      let trustedDevice = Boolean(known && signed);
+      if (!trustedDevice && signed && proof) {
+        try {
+          engine.trustDevice(decision.identityId, {
+            id: proof.id,
+            publicKey: proof.publicKey,
+            label: proof.label,
+          });
+          trustedDevice = true;
+        } catch {
+          trustedDevice = false;
+        }
+      }
+
       let passkeyOk = false;
       const submitted = parsed.data.passkey;
       if (submitted) {
@@ -571,7 +586,8 @@ export function createRouter(
       }
       if (!trustedDevice && !passkeyOk) {
         res.status(403).json({
-          error: "Confirma con la llave de este aparato o una passkey. El texto de las palabras no basta.",
+          error:
+            "No pudimos vincular este aparato. Recarga e inténtalo otra vez; si sigue fallando, usa una passkey.",
           code: "PASSKEY_REQUIRED",
         });
         return;
@@ -587,7 +603,11 @@ export function createRouter(
 
       activity?.record({
         kind: "login_ok",
-        detail: trustedDevice ? "Entrada con aparato de confianza" : "Entrada con passkey",
+        detail: trustedDevice
+          ? known
+            ? "Entrada con aparato de confianza"
+            : "Entrada con cara · aparato vinculado"
+          : "Entrada con passkey",
         identity: decision.displayName,
       });
 

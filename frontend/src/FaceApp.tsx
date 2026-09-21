@@ -262,16 +262,34 @@ export function FaceApp({ onExit }: FaceAppProps) {
     try {
       proof = await deviceProof();
     } catch {
-      proof = undefined;
+      // Sin clave local no hay forma de evitar la passkey; reintentamos crear una.
+      try {
+        await ensureDevice();
+        proof = await deviceProof();
+      } catch {
+        proof = undefined;
+      }
     }
     const descriptors = bestLoginDescriptors(captures);
     const shape = captureShape(captures);
     try {
-      return await identify(descriptors, shape, proof);
+      const result = await identify(descriptors, shape, proof);
+      if (result.trustedDevice || result.newDevice) markDeviceTrustedLocally();
+      return result;
     } catch (error) {
       if (!(error instanceof ApiError) || error.code !== "PASSKEY_REQUIRED") throw error;
+      // Solo si el aparato no pudo firmar: passkey como último recurso.
+      if (!passkeySupported()) {
+        throw new ApiError(
+          "Este navegador no pudo vincular el aparato. Prueba en Chrome o Safari.",
+          403,
+          "PASSKEY_REQUIRED",
+        );
+      }
       const passkey = await authenticatePasskey();
-      return identify(descriptors, shape, proof, passkey);
+      const result = await identify(descriptors, shape, proof, passkey);
+      await bindThisDevice(result.token);
+      return result;
     }
   }
 
