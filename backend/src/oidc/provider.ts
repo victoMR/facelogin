@@ -258,7 +258,8 @@ export class OidcProvider {
     return {
       kind: "interact",
       request,
-      location: `${this.appOrigin}/?oidc=${encodeURIComponent(request.id)}`,
+      // FaceApp (consent + login facial → redirect_uri) vive en /app, no en el landing.
+      location: `${this.appOrigin}/app?oidc=${encodeURIComponent(request.id)}`,
     };
   }
 

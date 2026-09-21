@@ -299,7 +299,7 @@ curl -s -D - -o /dev/null "$ISSUER/authorize?client_id=panel-demo\
 &redirect_uri=http%3A%2F%2Flocalhost%3A4000%2Fcallback&response_type=code\
 &scope=openid+profile&state=xyz-123&nonce=n-abc\
 &code_challenge=$CHALLENGE&code_challenge_method=S256" | grep -i '^location'
-# location: http://localhost:5173/?oidc=SfE3OGkT82xzt...
+# location: http://localhost:5173/app?oidc=SfE3OGkT82xzt...
 
 # 2) el usuario se identifica en la interfaz (cara + llave del aparato o passkey)
 # Un POST solo con el descriptor ya no entrega token: responde 403 PASSKEY_REQUIRED.

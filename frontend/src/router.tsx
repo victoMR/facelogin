@@ -23,10 +23,14 @@ export function useRouter() {
   }, []);
 
   const navigate = (to: Route, replace = false) => {
+    // Conserva ?oidc=… al cambiar de ruta (p. ej. / → /app en el flujo OIDC).
+    const search = window.location.search;
+    const keepOidc = search.includes("oidc=") && (to === "/" || to === "/app");
+    const url = keepOidc && to === "/app" ? `${to}${search}` : to;
     if (replace) {
-      window.history.replaceState(null, "", to);
+      window.history.replaceState(null, "", url);
     } else {
-      window.history.pushState(null, "", to);
+      window.history.pushState(null, "", url);
     }
     setRouteState(to);
   };
