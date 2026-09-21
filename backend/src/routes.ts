@@ -26,6 +26,7 @@ import { issueVoiceChallenge } from "./words.js";
 import type { ActivityLog } from "./activity.js";
 import type { AdminOperatorsStore } from "./admin-operators.js";
 import type { ManagedClientRegistry } from "./oidc/managed-clients.js";
+import type { OidcProvider } from "./oidc/provider.js";
 import {
   authenticationOptions,
   registrationOptions,
@@ -43,6 +44,8 @@ export type RouterOptions = {
   activity?: ActivityLog | null;
   operators?: AdminOperatorsStore | null;
   issuer?: string;
+  /** Si hay IdP, un `oidcRequestId` vivo autoriza el enrollo sin invite (alta vía app). */
+  provider?: OidcProvider | null;
 };
 
 const vectorSchema = z.array(z.number().finite()).length(128);
@@ -77,6 +80,8 @@ const enrollSchema = z
     conditions: z.array(conditionSchema).min(1).max(4).optional(),
     shape: z.array(z.number().finite()).length(64),
     device: deviceKeySchema.optional(),
+    /** Alta desde el consentimiento OIDC de una app ya registrada. */
+    oidcRequestId: z.string().trim().min(16).max(128).optional(),
   })
   .refine((body) => Boolean(body.samples) !== Boolean(body.conditions), {
     message: "Manda `samples` o `conditions`, no ambos.",
@@ -172,8 +177,15 @@ function bearerToken(req: Request): string {
 
 /** Si FACELOGIN_ENROLL_TOKEN existe, el enrollo exige ese bearer; si no, modo demo abierto.
  *  El FACELOGIN_ADMIN_TOKEN también vale: el panel /admin registra operadores con él.
+ *  Una petición OIDC pendiente (app registrada) autoriza el alta sin invite.
  */
-function enrollAuthorized(req: Request): { authorized: boolean; isCanary: boolean } {
+function enrollAuthorized(
+  req: Request,
+  options: {
+    oidcRequestId?: string;
+    describeOidc?: (id: string) => { clientName: string } | null;
+  } = {},
+): { authorized: boolean; isCanary: boolean } {
   const enrollExpected = process.env.FACELOGIN_ENROLL_TOKEN;
   const adminExpected = process.env.FACELOGIN_ADMIN_TOKEN;
   const token = bearerToken(req);
@@ -185,14 +197,18 @@ function enrollAuthorized(req: Request): { authorized: boolean; isCanary: boolea
   // Sin token de enrollo: abierto (demo), salvo canary.
   if (!enrollExpected) return { authorized: true, isCanary: false };
 
-  if (!token) return { authorized: false, isCanary: false };
+  if (token && constantTimeEquals(token, enrollExpected)) {
+    return { authorized: true, isCanary: false };
+  }
+  if (token && adminExpected && constantTimeEquals(token, adminExpected)) {
+    return { authorized: true, isCanary: false };
+  }
 
-  if (constantTimeEquals(token, enrollExpected)) {
+  const oidcId = options.oidcRequestId?.trim();
+  if (oidcId && options.describeOidc?.(oidcId)) {
     return { authorized: true, isCanary: false };
   }
-  if (adminExpected && constantTimeEquals(token, adminExpected)) {
-    return { authorized: true, isCanary: false };
-  }
+
   return { authorized: false, isCanary: false };
 }
 
@@ -248,6 +264,8 @@ export function createRouter(
   const activity = options.activity ?? null;
   const operators = options.operators ?? null;
   const issuer = options.issuer ?? null;
+  const provider = options.provider ?? null;
+  const describeOidc = (id: string) => provider?.describeRequest(id) ?? null;
 
   const router = Router();
 
@@ -394,7 +412,9 @@ export function createRouter(
       return;
     }
 
-    const auth = enrollAuthorized(req);
+    const oidcRequestId =
+      typeof req.body?.oidcRequestId === "string" ? req.body.oidcRequestId : undefined;
+    const auth = enrollAuthorized(req, { oidcRequestId, describeOidc });
     if (auth.isCanary) {
       handleCanaryAccess(bearerToken(req), ip);
       res.status(401).json({ error: "Ese código no es válido o ya venció." });
@@ -415,7 +435,19 @@ export function createRouter(
       return;
     }
 
-    const auth = enrollAuthorized(req);
+    const parsed = enrollSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({
+        error:
+          "Capturas inválidas. Necesitamos un nombre y 4–40 descriptores por condición.",
+      });
+      return;
+    }
+
+    const auth = enrollAuthorized(req, {
+      oidcRequestId: parsed.data.oidcRequestId,
+      describeOidc,
+    });
     if (auth.isCanary) {
       handleCanaryAccess(bearerToken(req), ip);
       res.status(401).json({ error: "Enrolamiento no autorizado." });
@@ -423,15 +455,6 @@ export function createRouter(
     }
     if (!auth.authorized) {
       res.status(401).json({ error: "Enrolamiento no autorizado." });
-      return;
-    }
-
-    const parsed = enrollSchema.safeParse(req.body);
-    if (!parsed.success) {
-      res.status(400).json({
-        error:
-          "Capturas inválidas. Necesitamos un nombre y 4–40 descriptores por condición.",
-      });
       return;
     }
     try {

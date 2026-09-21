@@ -96,6 +96,7 @@ export function enroll(
   shape?: number[],
   device?: DeviceInfo,
   inviteToken?: string,
+  oidcRequestId?: string,
 ): Promise<EnrollResult> {
   const headers: Record<string, string> = {};
   if (inviteToken) {
@@ -103,7 +104,13 @@ export function enroll(
   }
   return request("/api/enroll", {
     method: "POST",
-    body: JSON.stringify({ displayName, conditions, shape, device }),
+    body: JSON.stringify({
+      displayName,
+      conditions,
+      shape,
+      device,
+      ...(oidcRequestId ? { oidcRequestId } : {}),
+    }),
     headers,
   });
 }

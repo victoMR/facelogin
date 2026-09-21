@@ -51,6 +51,7 @@ export function createApp(options: AppOptions): express.Express {
       activity: options.activity ?? null,
       operators: options.operators ?? null,
       issuer: options.issuer ?? options.provider?.issuer,
+      provider: options.provider,
     }),
   );
 

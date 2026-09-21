@@ -179,10 +179,13 @@ export function FaceApp({ onExit }: FaceAppProps) {
   const [session, setSession] = useState<SessionState | null>(null);
   const [enrolled, setEnrolled] = useState<EnrollResult | null>(null);
   const [oidc, setOidc] = useState<OidcRequestInfo | null>(null);
+  /** Alta desde el consentimiento de una app OIDC (no el home genérico). */
+  const [oidcRegistering, setOidcRegistering] = useState(false);
   const [pendingTrust, setPendingTrust] = useState<PendingTrust | null>(null);
   const [gallery, setGallery] = useState<{ count: number }>({ count: 0 });
 
   const conditions: EnrollCondition[] = glasses ? GLASSES_CONDITIONS : SINGLE_CONDITION;
+  const appName = oidc?.clientName ?? "esta app";
 
   useEffect(() => {
     void import("./FaceCapture").catch(() => undefined);
@@ -223,8 +226,25 @@ export function FaceApp({ onExit }: FaceAppProps) {
   function goHome() {
     setError("");
     setPendingTrust(null);
+    setOidcRegistering(false);
     setMode("home");
     refreshGallery();
+  }
+
+  function goOidcConsent() {
+    setError("");
+    setOidcRegistering(false);
+    setGlasses(null);
+    setMode("oidc");
+  }
+
+  function startOidcRegister() {
+    setError("");
+    setName("");
+    setGlasses(null);
+    setInviteCode("");
+    setOidcRegistering(true);
+    setMode("setup");
   }
 
   async function identifyWithDevice(captures: Capture[]) {
@@ -364,17 +384,21 @@ export function FaceApp({ onExit }: FaceAppProps) {
       <main className="app">
         <Suspense fallback={<Warming />}>
           <FaceCapture
-            title="Configurar tu rostro"
+            title={oidcRegistering ? `Cuenta en ${appName}` : "Configurar tu rostro"}
             flow="enroll"
             challenges={enrollChallenges}
             conditions={conditions}
             error={error}
             onError={setError}
-            onCancel={goHome}
-            onLogin={() => {
-              setError("");
-              setMode("login");
-            }}
+            onCancel={oidcRegistering ? goOidcConsent : goHome}
+            onLogin={
+              oidcRegistering
+                ? undefined
+                : () => {
+                    setError("");
+                    setMode("login");
+                  }
+            }
             onComplete={async (captures) => {
               let device;
               try {
@@ -382,8 +406,25 @@ export function FaceApp({ onExit }: FaceAppProps) {
               } catch {
                 device = undefined;
               }
-              const result = await enroll(name, groupByCondition(captures), captureShape(captures), device, inviteCode.trim() || undefined);
+              const result = await enroll(
+                name,
+                groupByCondition(captures),
+                captureShape(captures),
+                device,
+                oidcRegistering ? undefined : inviteCode.trim() || undefined,
+                oidcRegistering && OIDC_REQUEST_ID ? OIDC_REQUEST_ID : undefined,
+              );
               if (device) markDeviceTrustedLocally();
+
+              // Alta vía app registrada: identificar y devolver al callback de esa app.
+              if (oidcRegistering && OIDC_REQUEST_ID) {
+                const { token } = await identifyWithDevice(captures);
+                const { redirect } = await oidcApprove(OIDC_REQUEST_ID, token);
+                window.location.replace(redirect);
+                await new Promise(() => undefined);
+                return;
+              }
+
               setEnrolled(result);
               setMode("done");
             }}
@@ -464,8 +505,7 @@ export function FaceApp({ onExit }: FaceAppProps) {
           <p className="eyebrow">Verificación de identidad</p>
           <h1 className="display">{oidc ? oidc.clientName : "Un servicio"} quiere saber quién eres</h1>
           <p className="body">
-            Vamos a comprobar tu rostro aquí y a devolverte a{" "}
-            {oidc ? oidc.clientName : "el servicio que te trajo"}. Ese servicio recibe{" "}
+            Vamos a comprobar tu rostro aquí y a devolverte a {appName}. Ese servicio recibe{" "}
             {(oidc?.scopes ?? ["openid"])
               .map((scope) => SCOPE_LABELS[scope] ?? scope)
               .join(" y ")}
@@ -481,6 +521,9 @@ export function FaceApp({ onExit }: FaceAppProps) {
               }}
             >
               Verificar mi rostro
+            </button>
+            <button className="btn btn--quiet" onClick={startOidcRegister}>
+              Crear cuenta para {appName}
             </button>
             <button className="btn btn--quiet" onClick={() => void cancelOidc()}>
               Cancelar
@@ -535,9 +578,19 @@ export function FaceApp({ onExit }: FaceAppProps) {
       )}
 
       {mode === "setup" && (
-        <Screen id="setup" onBack={goHome}>
-          <p className="eyebrow">Paso 1 de 2</p>
-          <h1 className="display">Antes de encender la cámara</h1>
+        <Screen id="setup" onBack={oidcRegistering ? goOidcConsent : goHome}>
+          <p className="eyebrow">
+            {oidcRegistering ? `Cuenta en ${appName}` : "Paso 1 de 2"}
+          </p>
+          <h1 className="display">
+            {oidcRegistering ? `Regístrate para ${appName}` : "Antes de encender la cámara"}
+          </h1>
+          {oidcRegistering && (
+            <p className="body">
+              Guardamos tu rostro aquí para entrar en {appName}. Cuando termines te devolvemos a
+              esa app; no hace falta un código de invitación aparte.
+            </p>
+          )}
           <form
             className="stack"
             onSubmit={(event) => {
