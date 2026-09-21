@@ -563,6 +563,7 @@ export function Admin({ onExit }: AdminProps) {
                   groupByCondition(captures),
                   captureShape(captures),
                   device,
+                  bootstrapToken.trim(),
                 );
                 const promote = await fetch("/api/admin/operators", {
                   method: "POST",

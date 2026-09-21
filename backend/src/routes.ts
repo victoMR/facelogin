@@ -170,18 +170,30 @@ function bearerToken(req: Request): string {
   return header.startsWith("Bearer ") ? header.slice(7).trim() : "";
 }
 
-/** Si FACELOGIN_ENROLL_TOKEN existe, el enrollo exige ese bearer; si no, modo demo abierto. */
+/** Si FACELOGIN_ENROLL_TOKEN existe, el enrollo exige ese bearer; si no, modo demo abierto.
+ *  El FACELOGIN_ADMIN_TOKEN también vale: el panel /admin registra operadores con él.
+ */
 function enrollAuthorized(req: Request): { authorized: boolean; isCanary: boolean } {
-  const expected = process.env.FACELOGIN_ENROLL_TOKEN;
-  if (!expected) return { authorized: true, isCanary: false };
-
+  const enrollExpected = process.env.FACELOGIN_ENROLL_TOKEN;
+  const adminExpected = process.env.FACELOGIN_ADMIN_TOKEN;
   const token = bearerToken(req);
 
-  if (isCanaryToken(token)) {
+  if (token && isCanaryToken(token)) {
     return { authorized: false, isCanary: true };
   }
 
-  return { authorized: constantTimeEquals(token, expected), isCanary: false };
+  // Sin token de enrollo: abierto (demo), salvo canary.
+  if (!enrollExpected) return { authorized: true, isCanary: false };
+
+  if (!token) return { authorized: false, isCanary: false };
+
+  if (constantTimeEquals(token, enrollExpected)) {
+    return { authorized: true, isCanary: false };
+  }
+  if (adminExpected && constantTimeEquals(token, adminExpected)) {
+    return { authorized: true, isCanary: false };
+  }
+  return { authorized: false, isCanary: false };
 }
 
 /** El borrado / panel: token de entorno O sesión facial de un operador. */
