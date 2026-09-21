@@ -10,7 +10,7 @@
     "build": "tsc -p tsconfig.json && vite build",
     "build:perf": "node ../scripts/sync-assets.mjs && tsc -p tsconfig.json && VITE_FACELOGIN_TEST_STREAM=1 vite build --outDir dist-perf",
     "preview": "vite preview",
-    "test": "tsx --test \"src/__tests__/*.test.ts\""
+    "test": "tsx --test src/__tests__/*.test.ts"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "^0.10.21",
