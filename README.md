@@ -518,6 +518,17 @@ La malla `shape` es obligatoria en plantillas nuevas. `GET /api/identities` solo
 
 Con varios descriptores el servidor se queda con el mejor y cobra `multiProbePenalty` por ello: el máximo de N intentos sube el score del impostor, y sin compensarlo mandar más descriptores bajaría el FRR a costa del FAR. Los coeficientes están medidos en `far.test.ts`, no elegidos a ojo.
 
+## Integrar en tu aplicación
+
+facelogin puede actuar como proveedor de autenticación alternativo ("Continuar con tu cara") para tu aplicación web.
+
+**📘 Para integradores:**
+- **[Guía de integración completa](docs/integrar-con-tu-app.md)** — Cómo añadir facelogin a tu app paso a paso
+- **[Prompt para IA](docs/prompt-ia-integracion.md)** — Prompt completo para que un agente de IA implemente la integración
+
+**🔧 Para implementadores técnicos:**
+- **[Documentación técnica OIDC](docs/integracion-oidc.md)** — Especificación completa del proveedor OpenID Connect
+
 ## facelogin como proveedor de identidad (OIDC)
 
 Otros servicios pueden delegar el login aquí. El flujo es **authorization code + PKCE (S256 obligatorio)** con firma **RS256**, y la guía completa está en [`docs/integracion-oidc.md`](docs/integracion-oidc.md).

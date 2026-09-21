@@ -380,7 +380,7 @@ export function FaceApp({ onExit }: FaceAppProps) {
               } catch {
                 device = undefined;
               }
-              const result = await enroll(name, groupByCondition(captures), captureShape(captures), device);
+              const result = await enroll(name, groupByCondition(captures), captureShape(captures), device, inviteCode.trim() || undefined);
               if (device) markDeviceTrustedLocally();
               setEnrolled(result);
               setMode("done");
@@ -503,9 +503,8 @@ export function FaceApp({ onExit }: FaceAppProps) {
               className="btn btn--primary"
               onClick={() => {
                 setError("");
-                // Si hay FACELOGIN_ENROLL_TOKEN, requerir validación primero
-                const enrollToken = process.env.FACELOGIN_ENROLL_TOKEN;
-                setMode(enrollToken ? "validate-invite" : "setup");
+                // Validar invite ANTES de cámara (evita 401 tras gestos).
+                setMode("validate-invite");
               }}
             >
               Configurar mi rostro
