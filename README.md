@@ -424,8 +424,38 @@ npm install
 npm run dev
 ```
 
-- UI: http://localhost:5173
+- Landing: http://localhost:5173 (marketing + docs integración)
+- App facial: http://localhost:5173/app (enrolar/entrar)
+- Admin: http://localhost:5173/admin (métricas)
 - API: http://localhost:8787
+
+### Estructura de rutas
+
+El proyecto ahora tiene separación de rutas:
+
+- `/` — Landing page con información del producto, historia, beneficios y cómo integrar facelogin como IdP OIDC
+- `/app` — Flujo facial completo (enrolar rostro / entrar)
+- `/admin` — Panel de administración con métricas del sistema
+
+### Validación de código de invitación
+
+Si defines `FACELOGIN_ENROLL_TOKEN`, el enrolamiento requiere validación previa:
+
+1. El usuario pega su código de invitación ANTES de que se abra la cámara
+2. Se valida contra `POST /api/enroll/validate` (Bearer token)
+3. Solo si es válido, procede al flujo normal de enrolamiento
+4. Si es inválido, muestra error amigable sin abrir cámara
+
+Esto resuelve el problema UX donde usuarios completaban gestos faciales solo para recibir 401 unauthorized.
+
+### Panel de administración
+
+Accede a `/admin` con tu `FACELOGIN_ADMIN_TOKEN`:
+
+1. Pega el token (se guarda en sessionStorage, no en bundle)
+2. Ve métricas del sistema en `/admin/dashboard`:
+   - Identidades enroladas
+   - (Futuro: actividad reciente, clientes OIDC)
 
 `predev` y `prebuild` copian los pesos de face-api y los `.wasm` de tfjs desde `node_modules` a `frontend/public/`; se puede forzar con `npm run sync:assets`. No están en git a propósito (7.8 MB de binarios que envejecerían mal y se desincronizarían del paquete).
 
