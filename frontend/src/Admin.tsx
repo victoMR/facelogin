@@ -14,7 +14,8 @@ import {
 } from "./api";
 import type { Capture } from "./FaceCapture";
 import { deviceProof, ensureDevice, isDeviceTrustedLocally, markDeviceTrustedLocally } from "./device";
-import { enrollChallenges, loginChallenges, SINGLE_CONDITION, trustedChallenges } from "./liveness";
+import { enrollChallenges, loginChallenges, GLASSES_CONDITIONS, SINGLE_CONDITION, trustedChallenges } from "./liveness";
+import type { EnrollCondition } from "./liveness";
 import { meanShape, SHAPE_DIM } from "./mesh";
 import { authenticatePasskey, passkeySupported } from "./passkey";
 
@@ -182,6 +183,7 @@ export function Admin({ onExit }: AdminProps) {
   const [authToken, setAuthToken] = useState("");
   const [bootstrapToken, setBootstrapToken] = useState("");
   const [name, setName] = useState("");
+  const [glasses, setGlasses] = useState<boolean | null>(null);
   const [error, setError] = useState("");
   const [metrics, setMetrics] = useState<AdminMetrics | null>(null);
   const [loading, setLoading] = useState(false);
@@ -300,6 +302,8 @@ export function Admin({ onExit }: AdminProps) {
     }
   }
 
+  const enrollConditions: EnrollCondition[] = glasses ? GLASSES_CONDITIONS : SINGLE_CONDITION;
+
   async function identifyWithDevice(captures: Capture[]) {
     let proof;
     try {
@@ -313,8 +317,27 @@ export function Admin({ onExit }: AdminProps) {
       return await identify(descriptors, shape, proof);
     } catch (error) {
       if (!(error instanceof ApiError) || error.code !== "PASSKEY_REQUIRED") throw error;
-      const passkey = await authenticatePasskey();
-      return identify(descriptors, shape, proof, passkey);
+      // Sin passkey registrada (caso típico del primer operador) no hay que
+      // colgarse en el diálogo WebAuthn: el aparato debió quedar de confianza
+      // en el enrolamiento.
+      if (!passkeySupported()) {
+        throw new Error(
+          "Este aparato no quedó de confianza. Vuelve a registrar tu cara o usa el token de emergencia.",
+        );
+      }
+      try {
+        const passkey = await Promise.race([
+          authenticatePasskey(),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error("Passkey cancelada o no disponible.")), 45_000),
+          ),
+        ]);
+        return await identify(descriptors, shape, proof, passkey);
+      } catch {
+        throw new Error(
+          "No pudimos confirmar el aparato. Reintenta: a veces hace falta permitir el micrófono/cámara y repetir el gesto.",
+        );
+      }
     }
   }
 
@@ -507,13 +530,13 @@ export function Admin({ onExit }: AdminProps) {
           <p className="eyebrow">Paso 2 · Tu cara</p>
           <h1 className="display">Registra al operador</h1>
           <p className="body">
-            Esta cara será la llave del panel. Tú mismo entrarás después con «Entrar con tu cara».
+            Esta cara será la llave del panel. Después entrarás con ella, sin pegar el token.
           </p>
           <form
             className="stack"
             onSubmit={(e) => {
               e.preventDefault();
-              if (name.trim().length < 2) return;
+              if (name.trim().length < 2 || glasses === null) return;
               setError("");
               setMode("bootstrap-enroll");
             }}
@@ -528,8 +551,37 @@ export function Admin({ onExit }: AdminProps) {
                 onChange={(e) => setName(e.target.value)}
               />
             </label>
-            <button className="btn btn--primary" type="submit" disabled={name.trim().length < 2}>
-              Encender la cámara
+
+            <fieldset className="field field--group">
+              <legend className="field__label">¿Usas lentes?</legend>
+              <div className="choice">
+                <button
+                  type="button"
+                  className="choice__option"
+                  aria-pressed={glasses === true}
+                  onClick={() => setGlasses(true)}
+                >
+                  <span className="choice__title">Sí, los uso</span>
+                  <span className="choice__hint">Capturamos con ellos y sin ellos</span>
+                </button>
+                <button
+                  type="button"
+                  className="choice__option"
+                  aria-pressed={glasses === false}
+                  onClick={() => setGlasses(false)}
+                >
+                  <span className="choice__title">No uso</span>
+                  <span className="choice__hint">Una sola ronda de gestos</span>
+                </button>
+              </div>
+            </fieldset>
+
+            <button
+              className="btn btn--primary"
+              type="submit"
+              disabled={name.trim().length < 2 || glasses === null}
+            >
+              {glasses === null ? "Elige si usas lentes" : "Encender la cámara"}
             </button>
           </form>
           {error && (
@@ -550,7 +602,7 @@ export function Admin({ onExit }: AdminProps) {
             title="Registrar operador"
             flow="enroll"
             challenges={enrollChallenges}
-            conditions={SINGLE_CONDITION}
+            conditions={enrollConditions}
             error={error}
             onError={setError}
             onCancel={() => setMode("bootstrap-setup")}
@@ -583,7 +635,19 @@ export function Admin({ onExit }: AdminProps) {
                 markDeviceTrustedLocally();
                 sessionStorage.removeItem(BOOTSTRAP_KEY);
                 setOperatorName(result.displayName);
-                setMode("face-login");
+
+                // Misma captura → sesión de admin, sin segundo baile ni hang de passkey.
+                try {
+                  const session = await identifyWithDevice(captures);
+                  await enterWithFace(session);
+                } catch (loginError) {
+                  setError(
+                    loginError instanceof Error
+                      ? loginError.message
+                      : "Registrado. Ahora entra con tu cara.",
+                  );
+                  setMode("face-login");
+                }
               } catch (cause) {
                 setError(cause instanceof Error ? cause.message : "No se pudo registrar.");
                 setMode("bootstrap-setup");
