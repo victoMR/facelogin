@@ -20,6 +20,14 @@ export function isMobile(): boolean {
   );
 }
 
+export type OpenCameraOptions = {
+  /**
+   * Pedir micrófono en el mismo `getUserMedia` que la cámara (un solo diálogo,
+   * como Meet/Zoom). Si el mic falla, se cae a solo vídeo.
+   */
+  audio?: boolean;
+};
+
 /**
  * Resolución adaptativa.
  *
@@ -33,11 +41,15 @@ export function isMobile(): boolean {
  * `OverconstrainedError` y nos quedamos sin cámara. Con `ideal` el navegador se
  * acerca a lo que puede.
  */
-export function constraintsFor(profile: DeviceProfile): MediaStreamConstraints[] {
+export function constraintsFor(
+  profile: DeviceProfile,
+  options: OpenCameraOptions = {},
+): MediaStreamConstraints[] {
   const { width, height } = profile.capture;
+  const audio = options.audio === true;
   return [
     {
-      audio: false,
+      audio,
       video: {
         facingMode: "user",
         width: { ideal: width },
@@ -45,8 +57,8 @@ export function constraintsFor(profile: DeviceProfile): MediaStreamConstraints[]
         frameRate: { ideal: 30, max: 30 },
       },
     },
-    { audio: false, video: { facingMode: "user" } },
-    { audio: false, video: true },
+    { audio, video: { facingMode: "user" } },
+    { audio, video: true },
   ];
 }
 
@@ -71,7 +83,10 @@ function testStream(): MediaStream | null {
   return provided instanceof MediaStream ? provided : null;
 }
 
-export async function openCamera(profile: DeviceProfile): Promise<MediaStream> {
+export async function openCamera(
+  profile: DeviceProfile,
+  options: OpenCameraOptions = {},
+): Promise<MediaStream> {
   const synthetic = testStream();
   if (synthetic) return synthetic;
 
@@ -79,8 +94,10 @@ export async function openCamera(profile: DeviceProfile): Promise<MediaStream> {
     throw new Error(insecureContextMessage());
   }
 
+  const wantAudio = options.audio === true;
   let last: unknown;
-  for (const constraints of constraintsFor(profile)) {
+
+  for (const constraints of constraintsFor(profile, { audio: wantAudio })) {
     try {
       return await navigator.mediaDevices.getUserMedia(constraints);
     } catch (error) {
@@ -90,6 +107,19 @@ export async function openCamera(profile: DeviceProfile): Promise<MediaStream> {
       if (error instanceof DOMException && error.name === "NotAllowedError") throw error;
     }
   }
+
+  // Micrófono ausente o ocupado: no bloquear el reconocimiento facial.
+  if (wantAudio) {
+    for (const constraints of constraintsFor(profile, { audio: false })) {
+      try {
+        return await navigator.mediaDevices.getUserMedia(constraints);
+      } catch (error) {
+        last = error;
+        if (error instanceof DOMException && error.name === "NotAllowedError") throw error;
+      }
+    }
+  }
+
   throw last instanceof Error ? last : new Error("No se pudo abrir la cámara.");
 }
 
@@ -114,8 +144,8 @@ export function cameraErrorMessage(error: unknown): string {
   const name = error instanceof DOMException ? error.name : "";
   if (name === "NotAllowedError" || name === "PermissionDeniedError") {
     return isMobile()
-      ? "Bloqueaste la cámara para esta página. Toca el candado en la barra de direcciones y permítela."
-      : "Chrome o macOS bloquearon la cámara. Permítela en la barra de direcciones y en Ajustes → Privacidad → Cámara.";
+      ? "Bloqueaste la cámara o el micrófono para esta página. Toca el candado en la barra de direcciones y permítelos."
+      : "Chrome o macOS bloquearon la cámara o el micrófono. Permítelos en la barra de direcciones y en Ajustes → Privacidad.";
   }
   if (name === "NotFoundError" || name === "DevicesNotFoundError") {
     return "No hay cámara disponible en este dispositivo, o está en uso por otra app.";

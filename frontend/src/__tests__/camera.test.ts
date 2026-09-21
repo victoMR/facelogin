@@ -1,6 +1,23 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { streamResolution } from "../camera";
+import { constraintsFor, streamResolution } from "../camera";
+import type { DeviceProfile } from "../perf";
+
+const profile = {
+  capture: { width: 640, height: 480 },
+} as DeviceProfile;
+
+test("constraintsFor pide solo vídeo por defecto", () => {
+  const list = constraintsFor(profile);
+  assert.equal(list.length, 3);
+  assert.equal(list.every((item) => item.audio === false), true);
+});
+
+test("constraintsFor pide micrófono junto con la cámara cuando audio=true", () => {
+  const list = constraintsFor(profile, { audio: true });
+  assert.equal(list.every((item) => item.audio === true), true);
+  assert.equal(Boolean(list[0]?.video), true);
+});
 
 // Estos tests son solo para funciones puras que no dependen del navegador
 

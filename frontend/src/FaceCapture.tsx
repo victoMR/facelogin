@@ -669,7 +669,8 @@ export function FaceCapture({
         setModels("loading");
 
         /**
-         * Cámara y modelos **en paralelo**, no en serie.
+         * Cámara (+ micrófono si el navegador puede oír) **en paralelo** con
+         * los modelos — un solo diálogo de permisos, como Meet/Zoom.
          *
          * Los pesos ya se están precargando desde que se montó la app, así que
          * lo normal es que `loadModels()` resuelva enseguida; pero encadenarlo
@@ -683,7 +684,9 @@ export function FaceCapture({
             "No se pudieron cargar los modelos faciales. Revisa tu conexión y reintenta.",
           );
         });
-        const stream = await openCamera(deviceProfile());
+        // Login y enroll pueden pedir el captcha de voz: pedimos el mic ahora
+        // para no abrir un segundo diálogo a mitad de los gestos.
+        const stream = await openCamera(deviceProfile(), { audio: speechSupported() });
         if (cancelled) {
           stream.getTracks().forEach((track) => track.stop());
           return;
@@ -1277,7 +1280,7 @@ export function FaceCapture({
     let stopListen = () => {};
     let meterStop: (() => void) | undefined;
     let cancelled = false;
-    void openMicMeter().then(
+    void openMicMeter(streamRef.current).then(
       (meter) => {
         if (cancelled) {
           meter.stop();
@@ -1774,7 +1777,10 @@ export function FaceCapture({
                 usuario, y `await getUserMedia()` rompe la cadena del gesto que
                 trajo al usuario hasta aquí. Un botón lo resuelve; un rectángulo
                 negro sin explicación, no. */}
-            <p className="body">Tu navegador necesita un toque para encender la cámara.</p>
+            <p className="body">
+              Tu navegador necesita un toque para encender la cámara
+              {speechSupported() ? " y el micrófono" : ""}.
+            </p>
             <button
               className="btn btn--primary"
               autoFocus

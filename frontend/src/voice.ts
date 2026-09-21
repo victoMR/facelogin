@@ -96,8 +96,16 @@ export function listenSpeech(
   };
 }
 
-export async function openMicMeter(): Promise<{ rms: () => number; stop: () => void }> {
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+export async function openMicMeter(
+  existing?: MediaStream | null,
+): Promise<{ rms: () => number; stop: () => void }> {
+  const liveAudio = existing?.getAudioTracks().some((track) => track.readyState === "live");
+  // Reutilizar el audio del getUserMedia inicial (cámara+mic juntos) evita un
+  // segundo diálogo de permisos a mitad del reconocimiento.
+  const stream = liveAudio
+    ? existing!
+    : await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+  const shared = Boolean(liveAudio);
   const ctx = new AudioContext();
   const source = ctx.createMediaStreamSource(stream);
   const analyser = ctx.createAnalyser();
@@ -118,7 +126,10 @@ export async function openMicMeter(): Promise<{ rms: () => number; stop: () => v
     stop: () => {
       source.disconnect();
       void ctx.close();
-      stream.getTracks().forEach((track) => track.stop());
+      // No apagar pistas del stream compartido con la cámara.
+      if (!shared) {
+        stream.getTracks().forEach((track) => track.stop());
+      }
     },
   };
 }
