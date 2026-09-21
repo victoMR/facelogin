@@ -170,3 +170,56 @@ export function streamResolution(stream: MediaStream | null): string {
   if (!width || !height) return "—";
   return `${width}×${height}${frameRate ? ` @ ${Math.round(frameRate)} fps` : ""}`;
 }
+
+type SafariVideo = HTMLVideoElement & {
+  webkitSupportsPresentationMode?: (mode: string) => boolean;
+  webkitPresentationMode?: string;
+  webkitSetPresentationMode?: (mode: string) => void;
+  disableRemotePlayback?: boolean;
+};
+
+/**
+ * Mantiene el preview **inline** (sin PiP de Safari/Chrome).
+ * Safari no respeta del todo `disablePictureInPicture`; hay que empujar
+ * `webkitSetPresentationMode('inline')` si intenta salir a PiP.
+ */
+export function lockVideoInline(video: HTMLVideoElement): () => void {
+  const safari = video as SafariVideo;
+  video.playsInline = true;
+  video.muted = true;
+  video.disablePictureInPicture = true;
+  if ("disableRemotePlayback" in video) safari.disableRemotePlayback = true;
+
+  const forceInline = () => {
+    if (document.pictureInPictureElement === video) {
+      void document.exitPictureInPicture().catch(() => undefined);
+    }
+    if (
+      safari.webkitPresentationMode === "picture-in-picture" &&
+      typeof safari.webkitSetPresentationMode === "function"
+    ) {
+      try {
+        safari.webkitSetPresentationMode("inline");
+      } catch {
+        /* Safari viejo */
+      }
+    }
+  };
+
+  const onEnterPip = (event: Event) => {
+    event.preventDefault();
+    forceInline();
+  };
+
+  video.addEventListener("enterpictureinpicture", onEnterPip);
+  video.addEventListener("webkitpresentationmodechanged", forceInline as EventListener);
+  video.addEventListener("webkitbeginfullscreen", forceInline as EventListener);
+
+  forceInline();
+
+  return () => {
+    video.removeEventListener("enterpictureinpicture", onEnterPip);
+    video.removeEventListener("webkitpresentationmodechanged", forceInline as EventListener);
+    video.removeEventListener("webkitbeginfullscreen", forceInline as EventListener);
+  };
+}

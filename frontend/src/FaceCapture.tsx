@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { cameraErrorMessage, openCamera, streamResolution } from "./camera";
+import { cameraErrorMessage, lockVideoInline, openCamera, streamResolution } from "./camera";
 import {
   computeBackend,
   deviceProfile,
@@ -662,6 +662,7 @@ export function FaceCapture({
 
   useEffect(() => {
     let cancelled = false;
+    let unlockPip: (() => void) | undefined;
 
     async function start() {
       try {
@@ -698,11 +699,7 @@ export function FaceCapture({
         // Solo pistas de vídeo en el <video>: con audio+vídeo juntos Safari/Chrome
         // a veces dejan el preview negro; el mic se reutiliza desde streamRef.
         video.srcObject = new MediaStream(stream.getVideoTracks());
-        video.disablePictureInPicture = true;
-        if ("disableRemotePlayback" in video) {
-          (video as HTMLVideoElement & { disableRemotePlayback: boolean }).disableRemotePlayback =
-            true;
-        }
+        unlockPip = lockVideoInline(video);
         if (video.readyState < 2) {
           await new Promise<void>((resolve) => {
             video.onloadedmetadata = () => resolve();
@@ -742,6 +739,7 @@ export function FaceCapture({
     void start();
     return () => {
       cancelled = true;
+      unlockPip?.();
       streamRef.current?.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
       if (videoRef.current) videoRef.current.srcObject = null;
