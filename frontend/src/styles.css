@@ -14,41 +14,54 @@
 :root {
   color-scheme: light dark;
 
-  --bg: #f5f5f7;
+  /* Liquid Glass iOS 26+ color system */
+  --bg: #f2f2f7;
   --surface: #ffffff;
   --label: #1d1d1f;
   --secondary: #6e6e73;
   --tertiary: #86868b;
   --separator: rgba(60, 60, 67, 0.16);
   --fill: rgba(120, 120, 128, 0.12);
-  --tint: #0071e3;
+  --tint: #007aff;
   --on-tint: #ffffff;
   --ok: #34c759;
   --warn: #ff9f0a;
   --danger: #d70015;
-  --focus: 0 0 0 4px rgba(0, 113, 227, 0.35);
+  --focus: 0 0 0 4px rgba(0, 122, 255, 0.35);
+
+  /* Glass material system */
+  --glass: rgba(255, 255, 255, 0.55);
+  --glass-stroke: rgba(255, 255, 255, 0.45);
+  --glass-blur: blur(40px) saturate(180%);
+  --glass-specular: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.25) 0%,
+    rgba(255, 255, 255, 0) 50%
+  );
+
+  /* Radii tokens */
+  --radius-pill: 980px;
+  --radius-card: 28px;
+  --radius-control: 16px;
+  --radius-chip: 999px;
 
   /* Sobre el vídeo el tema no cambia: la escena siempre es oscura. */
   --ring-idle: rgba(255, 255, 255, 0.3);
   --ring-shot: #30d158;
-  /* El relleno del tramo en curso: el mismo verde del disparo, atenuado, porque
-     es lo que está a punto de pasar. Un color propio lo convertiría en un tercer
-     estado que habría que aprender. */
   --ring-hold: rgba(48, 209, 88, 0.85);
-
-  /* Ámbar de aviso. Lo usan la traza del anillo cuando la imagen no acompaña y
-     el titular cuando el consejo sustituye a la instrucción: es el mismo aviso
-     dicho de dos maneras, no dos avisos. */
   --coach-warn: #ffd60a;
 
-  /* Curva única de la interfaz. Estaba repetida literal en seis sitios. */
+  /* Enhanced motion curve for iOS 26+ feel */
   --ease: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-spring: cubic-bezier(0.175, 0.885, 0.32, 1.05);
 
+  /* SF-like typography system */
   font-family:
-    -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+    system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", sans-serif;
   font-size: 17px;
   line-height: 1.4;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
 }
 
@@ -64,6 +77,15 @@
     --tint: #0a84ff;
     --danger: #ff453a;
     --focus: 0 0 0 4px rgba(10, 132, 255, 0.45);
+
+    /* Dark mode glass material */
+    --glass: rgba(30, 30, 30, 0.45);
+    --glass-stroke: rgba(255, 255, 255, 0.15);
+    --glass-specular: linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.08) 0%,
+      rgba(255, 255, 255, 0) 50%
+    );
   }
 }
 
@@ -133,7 +155,11 @@ input {
 @keyframes screen-in {
   from {
     opacity: 0;
-    transform: translateY(10px);
+    transform: translateY(20px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
   }
 }
 
@@ -141,18 +167,19 @@ input {
   margin: 0 0 10px;
   font-size: 13px;
   font-weight: 600;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--tertiary);
 }
 
 .display {
   margin: 0 0 14px;
-  font-size: clamp(34px, 8vw, 52px);
-  line-height: 1.05;
-  letter-spacing: -0.035em;
+  font-size: clamp(48px, 11vw, 80px);
+  line-height: 0.95;
+  letter-spacing: -0.045em;
   font-weight: 700;
   text-wrap: balance;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif;
 }
 
 .title {
@@ -165,7 +192,8 @@ input {
 .body {
   margin: 0 0 32px;
   color: var(--secondary);
-  font-size: 17px;
+  font-size: 19px;
+  line-height: 1.35;
   max-width: 32ch;
   text-wrap: pretty;
 }
@@ -177,42 +205,74 @@ input {
   align-items: stretch;
 }
 
-/* --- Controles ------------------------------------------------------------- */
+/* --- Controles con Liquid Glass -------------------------------------------- */
 
 .btn {
   appearance: none;
   border: 0;
-  border-radius: 14px;
+  border-radius: var(--radius-control);
   min-height: 52px;
   padding: 0 22px;
-  background: var(--fill);
+  background: var(--glass);
+  backdrop-filter: var(--glass-blur);
   color: var(--label);
   font-size: 17px;
   font-weight: 500;
   cursor: pointer;
+  position: relative;
+  box-shadow: 
+    inset 0 0.5px 0 0.5px var(--glass-stroke),
+    0 2px 12px rgba(0, 0, 0, 0.08);
   transition:
-    transform 160ms cubic-bezier(0.32, 0.72, 0, 1),
+    transform 220ms var(--ease-spring),
     opacity 160ms ease,
-    background-color 160ms ease;
+    background-color 160ms ease,
+    box-shadow 220ms ease;
+}
+
+.btn::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--glass-specular);
+  opacity: 0.5;
+  pointer-events: none;
 }
 
 .btn:hover {
-  opacity: 0.88;
+  transform: scale(1.02);
+  box-shadow: 
+    inset 0 0.5px 0 0.5px var(--glass-stroke),
+    0 4px 20px rgba(0, 0, 0, 0.12);
 }
 
 .btn:active {
-  transform: scale(0.985);
+  transform: scale(0.98);
 }
 
 .btn--primary {
-  background: var(--tint);
-  color: var(--on-tint);
+  background: var(--label);
+  color: var(--bg);
   font-weight: 600;
+  box-shadow: 
+    0 2px 16px rgba(0, 0, 0, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.btn--primary::before {
+  opacity: 0.15;
 }
 
 .btn--quiet {
   background: transparent;
+  backdrop-filter: none;
   color: var(--tint);
+  box-shadow: none;
+}
+
+.btn--quiet::before {
+  display: none;
 }
 
 .btn--chip {
@@ -220,11 +280,13 @@ input {
   align-items: center;
   gap: 4px;
   min-height: 44px;
-  padding: 0 14px 0 10px;
-  border-radius: 999px;
+  padding: 0 16px 0 12px;
+  border-radius: var(--radius-pill);
   font-size: 15px;
-  background: var(--fill);
+  background: var(--glass);
+  backdrop-filter: var(--glass-blur);
   color: var(--tint);
+  box-shadow: inset 0 0.5px 0 0.5px var(--glass-stroke);
 }
 
 .btn:disabled {
@@ -233,14 +295,21 @@ input {
   transform: none;
 }
 
+.btn:disabled:hover {
+  transform: none;
+}
+
 .input {
   width: 100%;
   min-height: 52px;
   border: 0;
-  border-radius: 14px;
-  background: var(--fill);
+  border-radius: var(--radius-control);
+  background: var(--glass);
+  backdrop-filter: var(--glass-blur);
   padding: 0 16px;
   font-size: 17px;
+  box-shadow: inset 0 0.5px 0 0.5px var(--glass-stroke);
+  transition: all 220ms var(--ease);
 }
 
 .input::placeholder {
@@ -249,7 +318,10 @@ input {
 
 .input:focus {
   outline: none;
-  background: color-mix(in srgb, var(--tint) 10%, var(--fill));
+  background: color-mix(in srgb, var(--tint) 8%, var(--glass));
+  box-shadow: 
+    inset 0 0.5px 0 0.5px var(--glass-stroke),
+    0 0 0 4px color-mix(in srgb, var(--tint) 20%, transparent);
 }
 
 /* --- Campos de la pantalla de registro ------------------------------------- */
@@ -284,13 +356,11 @@ input {
 }
 
 /*
-  Elección de lentes.
+  Elección de lentes con estética glass.
 
-  Dos tarjetas y no un interruptor, y sin valor por defecto: la respuesta
+  Dos tarjetas glass y no un interruptor, y sin valor por defecto: la respuesta
   cambia el registro entero (una ronda o dos) y equivocarse en silencio se paga
-  días después con un login que no funciona. `aria-pressed` en vez de radios
-  nativos porque cada opción lleva un título y una consecuencia, y un `<input
-  type=radio>` con dos líneas de etiqueta no se deja maquetar sin pelearse.
+  días después con un login que no funciona.
 */
 .choice {
   display: grid;
@@ -306,31 +376,51 @@ input {
   min-height: 76px;
   padding: 14px;
   border: 0;
-  border-radius: 16px;
-  background: var(--fill);
+  border-radius: 20px;
+  background: var(--glass);
+  backdrop-filter: var(--glass-blur);
   color: var(--label);
   text-align: left;
   cursor: pointer;
-  box-shadow: inset 0 0 0 1.5px transparent;
+  position: relative;
+  box-shadow: inset 0 0.5px 0 0.5px var(--glass-stroke);
   transition:
-    background-color 180ms ease,
-    box-shadow 180ms ease,
-    transform 160ms var(--ease);
+    background-color 220ms ease,
+    box-shadow 220ms ease,
+    transform 180ms var(--ease-spring);
+}
+
+.choice__option::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--glass-specular);
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.choice__option:hover {
+  transform: scale(1.02);
 }
 
 .choice__option:active {
-  transform: scale(0.985);
+  transform: scale(0.98);
 }
 
 .choice__option[aria-pressed="true"] {
-  background: color-mix(in srgb, var(--tint) 14%, transparent);
-  box-shadow: inset 0 0 0 1.5px var(--tint);
+  background: color-mix(in srgb, var(--tint) 14%, var(--glass));
+  box-shadow: 
+    inset 0 0 0 2px var(--tint),
+    0 4px 20px color-mix(in srgb, var(--tint) 25%, transparent);
 }
 
 .choice__title {
   font-size: 16px;
   font-weight: 600;
   letter-spacing: -0.01em;
+  position: relative;
+  z-index: 1;
 }
 
 .choice__option[aria-pressed="true"] .choice__title {
@@ -341,29 +431,45 @@ input {
   font-size: 13px;
   line-height: 1.3;
   color: var(--secondary);
+  position: relative;
+  z-index: 1;
 }
 
 /*
-  Vista previa del trámite: cuántas rondas, cuántas capturas, cuánto tarda.
+  Vista previa del trámite con estética glass.
 
   "El registro es largo" era medio problema de longitud y medio de expectativa.
   Esto no acorta nada; quita la sensación de estar dentro de algo sin final.
 */
 .plan {
   margin: 4px 0 0;
-  padding: 14px 16px;
+  padding: 16px 18px;
   list-style: none;
-  border-radius: 16px;
-  background: var(--fill);
+  border-radius: 20px;
+  background: var(--glass);
+  backdrop-filter: var(--glass-blur);
   font-size: 14px;
   line-height: 1.5;
   color: var(--secondary);
+  position: relative;
+  box-shadow: inset 0 0.5px 0 0.5px var(--glass-stroke);
   animation: line-in 300ms var(--ease) both;
+}
+
+.plan::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--glass-specular);
+  opacity: 0.3;
+  pointer-events: none;
 }
 
 .plan li {
   position: relative;
   padding-left: 20px;
+  z-index: 1;
 }
 
 .plan li + li {
@@ -400,46 +506,63 @@ input {
   border-radius: 14px;
 }
 
-/* --- Glifos y avatar ------------------------------------------------------- */
+/* --- Glifos y avatar con glass effects ------------------------------------- */
 
 .glyph {
   display: grid;
   place-items: center;
-  width: 56px;
-  height: 56px;
+  width: 64px;
+  height: 64px;
   margin-bottom: 20px;
   border-radius: 50%;
-  background: var(--fill);
+  background: var(--glass);
+  backdrop-filter: var(--glass-blur);
   color: var(--secondary);
+  position: relative;
+  box-shadow: inset 0 0.5px 0 0.5px var(--glass-stroke);
+}
+
+.glyph::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--glass-specular);
+  opacity: 0.4;
 }
 
 .glyph svg {
   width: 30px;
   height: 30px;
+  position: relative;
+  z-index: 1;
 }
 
 .glyph--ok {
-  background: color-mix(in srgb, var(--ok) 18%, transparent);
+  background: color-mix(in srgb, var(--ok) 18%, var(--glass));
   color: var(--ok);
 }
 
 .glyph--warn {
-  background: color-mix(in srgb, var(--warn) 18%, transparent);
+  background: color-mix(in srgb, var(--warn) 18%, var(--glass));
   color: var(--warn);
 }
 
 .avatar {
   display: grid;
   place-items: center;
-  width: 68px;
-  height: 68px;
+  width: 80px;
+  height: 80px;
   margin-bottom: 22px;
   border-radius: 50%;
   background: var(--tint);
   color: var(--on-tint);
-  font-size: 26px;
+  font-size: 30px;
   font-weight: 600;
   letter-spacing: 0.01em;
+  box-shadow: 
+    0 8px 32px color-mix(in srgb, var(--tint) 40%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
 }
 
 /* --- Detalles técnicos, plegados ------------------------------------------- */
@@ -514,12 +637,28 @@ input {
   transform: translateX(-50%);
   max-width: min(28rem, calc(100% - 32px));
   margin: 0;
-  padding: 12px 18px;
-  border-radius: 14px;
-  background: var(--surface);
+  padding: 14px 20px;
+  border-radius: 20px;
+  background: var(--glass);
+  backdrop-filter: var(--glass-blur);
   color: var(--danger);
   font-size: 15px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+  font-weight: 500;
+  box-shadow: 
+    inset 0 0.5px 0 0.5px var(--glass-stroke),
+    0 12px 40px rgba(0, 0, 0, 0.25);
+  animation: toast-in 320ms var(--ease-spring) both;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(10px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0) scale(1);
+  }
 }
 
 /* --- Captura --------------------------------------------------------------- */
@@ -730,9 +869,10 @@ input {
 }
 
 .capture__top .btn--chip {
-  background: rgba(255, 255, 255, 0.16);
+  background: var(--glass);
+  backdrop-filter: var(--glass-blur);
   color: #fff;
-  backdrop-filter: blur(20px) saturate(180%);
+  box-shadow: inset 0 0.5px 0 0.5px rgba(255, 255, 255, 0.25);
 }
 
 .capture__title {
@@ -891,44 +1031,48 @@ input {
 
 .capture__tag {
   margin: 0;
-  padding: 5px 12px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.16);
-  backdrop-filter: blur(20px) saturate(180%);
+  padding: 6px 14px;
+  border-radius: var(--radius-pill);
+  background: var(--glass);
+  backdrop-filter: var(--glass-blur);
   font-size: 13px;
   font-weight: 500;
   color: #fff;
+  box-shadow: inset 0 0.5px 0 0.5px rgba(255, 255, 255, 0.25);
 }
 
 .capture__alert {
   margin: 0;
   max-width: 34ch;
-  padding: 10px 16px;
-  border-radius: 14px;
+  padding: 12px 18px;
+  border-radius: 18px;
   background: rgba(215, 0, 21, 0.92);
+  backdrop-filter: blur(20px);
   color: #fff;
   font-size: 15px;
+  box-shadow: 0 4px 20px rgba(215, 0, 21, 0.4);
 }
 
 /*
-  Degradación honesta, ahora en la CABECERA y solo la grave.
+  Degradación honesta con estética glass.
 
   Estaba en el pie, encima de la instrucción: un segundo bloque de texto justo
   donde no cabía otro. Arriba comparte sitio con la etiqueta de ronda, que es
   también información de contexto y no de acción, y deja el pie con una sola
-  línea. El nivel "aviso" ya no se pinta: baja a «Detalles técnicos» y a la
-  región `aria-live`.
+  línea.
 */
 .capture__degraded {
   margin: 0;
   max-width: 32ch;
-  padding: 8px 14px;
-  border-radius: 16px;
+  padding: 10px 16px;
+  border-radius: 18px;
   background: rgba(180, 105, 0, 0.9);
+  backdrop-filter: blur(20px);
   color: #fff;
   font-size: 13px;
   line-height: 1.35;
   text-wrap: balance;
+  box-shadow: 0 4px 16px rgba(180, 105, 0, 0.3);
 }
 
 /*
@@ -1024,9 +1168,10 @@ input {
 
 .voice__word {
   margin: 0;
-  padding: 12px 18px;
-  border-radius: 16px;
-  background: rgba(0, 0, 0, 0.62);
+  padding: 14px 20px;
+  border-radius: 20px;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(30px) saturate(180%);
   color: #fff;
   font-size: clamp(26px, 6.4vw, 36px);
   font-weight: 700;
@@ -1034,11 +1179,17 @@ input {
   letter-spacing: -0.03em;
   text-align: center;
   text-wrap: balance;
+  box-shadow: 
+    inset 0 0.5px 0 0.5px rgba(255, 255, 255, 0.2),
+    0 8px 24px rgba(0, 0, 0, 0.4);
 }
 
 .voice__word[data-ok] {
   background: rgba(48, 209, 88, 0.88);
   color: #04210c;
+  box-shadow: 
+    inset 0 1px 0 rgba(255, 255, 255, 0.3),
+    0 8px 32px rgba(48, 209, 88, 0.4);
 }
 
 .voice__meter {
@@ -1063,27 +1214,31 @@ input {
 .voice__hint {
   margin: 0;
   max-width: 22rem;
-  padding: 6px 10px;
-  border-radius: 10px;
-  background: rgba(0, 0, 0, 0.45);
-  color: rgba(255, 255, 255, 0.88);
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(20px);
+  color: rgba(255, 255, 255, 0.92);
   font-size: 13px;
   line-height: 1.35;
   text-align: center;
   text-wrap: pretty;
+  box-shadow: inset 0 0.5px 0 0.5px rgba(255, 255, 255, 0.15);
 }
 
 .voice__hear {
   margin: 0;
   max-width: 22rem;
-  padding: 4px 8px;
-  border-radius: 8px;
-  background: rgba(0, 0, 0, 0.4);
-  color: rgba(255, 255, 255, 0.72);
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(16px);
+  color: rgba(255, 255, 255, 0.75);
   font-size: 12px;
   line-height: 1.35;
   text-align: center;
   word-break: break-word;
+  box-shadow: inset 0 0.5px 0 0.5px rgba(255, 255, 255, 0.12);
 }
 
 .overlay {
@@ -1093,8 +1248,8 @@ input {
   display: grid;
   place-items: center;
   padding: 24px;
-  background: rgba(0, 0, 0, 0.55);
-  backdrop-filter: blur(24px) saturate(160%);
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(40px) saturate(160%);
   animation: screen-in 260ms ease both;
 }
 
@@ -1105,12 +1260,26 @@ input {
   flex-direction: column;
   align-items: center;
   gap: 6px;
-  padding: 28px 24px 24px;
-  border-radius: 24px;
-  background: var(--surface);
+  padding: 32px 28px 28px;
+  border-radius: var(--radius-card);
+  background: var(--glass);
+  backdrop-filter: var(--glass-blur);
   color: var(--label);
   text-align: center;
-  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.4);
+  position: relative;
+  box-shadow: 
+    inset 0 0.5px 0 0.5px var(--glass-stroke),
+    0 32px 80px rgba(0, 0, 0, 0.4);
+}
+
+.overlay__card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--glass-specular);
+  opacity: 0.3;
+  pointer-events: none;
 }
 
 .overlay__card {
@@ -1119,6 +1288,11 @@ input {
      desplace por dentro es mejor que que se salga de la pantalla. */
   max-height: calc(100dvh - 48px);
   overflow-y: auto;
+}
+
+.overlay__card > * {
+  position: relative;
+  z-index: 1;
 }
 
 .overlay__card .body {
@@ -1134,17 +1308,18 @@ input {
   margin-bottom: 0;
 }
 
-/* La letra pequeña tranquilizadora: "lo ya capturado se conserva". Es la
-   diferencia entre repetir una ronda y volver a empezar de cero. */
+/* La letra pequeña tranquilizadora con estética glass. */
 .overlay__meta {
   margin: -12px 0 16px;
-  padding: 8px 12px;
-  border-radius: 12px;
-  background: var(--fill);
+  padding: 10px 14px;
+  border-radius: 16px;
+  background: var(--glass);
+  backdrop-filter: var(--glass-blur);
   font-size: 13px;
   line-height: 1.4;
   color: var(--secondary);
   text-wrap: pretty;
+  box-shadow: inset 0 0.5px 0 0.5px var(--glass-stroke);
 }
 
 .diag--tight {
@@ -1183,11 +1358,20 @@ input {
   }
 }
 
-/* --- Pantallas grandes ----------------------------------------------------- */
+/* --- Pantallas grandes con mejor espaciado --------------------------------- */
 
 @media (min-width: 900px) {
   .screen {
     padding-inline: 64px;
+  }
+
+  .display {
+    font-size: clamp(64px, 10vw, 96px);
+  }
+
+  .body {
+    font-size: 21px;
+    line-height: 1.4;
   }
 
   .capture__instruction {
@@ -1252,7 +1436,7 @@ input {
   }
 }
 
-/* --- Movimiento reducido --------------------------------------------------- */
+/* --- Movimiento reducido y fallbacks --------------------------------------- */
 
 @media (prefers-reduced-motion: reduce) {
   *,
@@ -1265,6 +1449,37 @@ input {
 
   .ring__pulse {
     display: none;
+  }
+
+  .btn:hover,
+  .choice__option:hover {
+    transform: none;
+  }
+}
+
+/* Fallback para navegadores sin soporte de backdrop-filter */
+@supports not (backdrop-filter: blur(40px)) {
+  .btn,
+  .input,
+  .choice__option,
+  .plan,
+  .glyph,
+  .overlay__card,
+  .overlay__meta,
+  .capture__top .btn--chip,
+  .capture__tag,
+  .voice__word,
+  .voice__hint,
+  .voice__hear {
+    background: var(--surface);
+  }
+
+  .btn--primary {
+    background: var(--label);
+  }
+
+  .toast {
+    background: var(--surface);
   }
 }
 
