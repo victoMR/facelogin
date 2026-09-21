@@ -2,7 +2,6 @@ import { useState, useEffect, type ReactNode } from "react";
 
 export type Route = "/" | "/app" | "/admin" | "/admin/dashboard";
 
-const ROUTE_KEY = "facelogin.route";
 
 function getInitialRoute(): Route {
   const path = window.location.pathname as Route;
