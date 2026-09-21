@@ -317,6 +317,27 @@ export function createRouter(
     res.json({ challenge: result.nonce });
   });
 
+  router.post("/enroll/validate", (req, res) => {
+    const ip = req.ip ?? "local";
+    if (!rateLimit("enroll-validate", ip, 10, 60_000)) {
+      res.status(429).json({ error: "Demasiadas validaciones. Espera un momento." });
+      return;
+    }
+
+    const auth = enrollAuthorized(req);
+    if (auth.isCanary) {
+      handleCanaryAccess(bearerToken(req), ip);
+      res.status(401).json({ error: "Ese código no es válido o ya venció." });
+      return;
+    }
+    if (!auth.authorized) {
+      res.status(401).json({ error: "Ese código no es válido o ya venció." });
+      return;
+    }
+
+    res.status(204).send();
+  });
+
   router.post("/enroll", (req, res) => {
     const ip = req.ip ?? "local";
     if (!rateLimit("enroll", ip, ENROLL_LIMIT.max, ENROLL_LIMIT.windowMs)) {
@@ -616,6 +637,27 @@ export function createRouter(
     } catch {
       res.status(401).json({ error: "Sesión inválida o caducada." });
     }
+  });
+
+  router.get("/admin/metrics", (req, res) => {
+    const { authorized, isCanary } = adminAuthorized(req);
+    if (isCanary) {
+      handleCanaryAccess(bearerToken(req), req.ip ?? "local");
+      res.status(401).json({ error: "No autorizado." });
+      return;
+    }
+    if (!authorized) {
+      res.status(401).json({ error: "No autorizado." });
+      return;
+    }
+    if (!rateLimit("admin-metrics", req.ip ?? "local", 30, 60_000)) {
+      res.status(429).json({ error: "Demasiadas consultas. Espera un momento." });
+      return;
+    }
+
+    res.json({
+      enrolledIdentities: engine.countIdentities(),
+    });
   });
 
   return router;
