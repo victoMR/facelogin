@@ -12,7 +12,9 @@
 --------------------------------------------------------------------------- */
 
 :root {
-  color-scheme: light dark;
+  /* Panel/landing siempre claros: en PCs con Windows/macOS en oscuro el
+     fondo #000 + cristal transparente dejaba el panel principal ilegible. */
+  color-scheme: light;
 
   /* Liquid Glass iOS 26+ color system */
   --bg: #f2f2f7;
@@ -30,12 +32,12 @@
   --focus: 0 0 0 4px rgba(0, 122, 255, 0.35);
 
   /* Glass material system */
-  --glass: rgba(255, 255, 255, 0.55);
-  --glass-stroke: rgba(255, 255, 255, 0.45);
+  --glass: rgba(255, 255, 255, 0.72);
+  --glass-stroke: rgba(255, 255, 255, 0.55);
   --glass-blur: blur(40px) saturate(180%);
   --glass-specular: linear-gradient(
     135deg,
-    rgba(255, 255, 255, 0.25) 0%,
+    rgba(255, 255, 255, 0.35) 0%,
     rgba(255, 255, 255, 0) 50%
   );
 
@@ -63,30 +65,6 @@
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #000000;
-    --surface: #1c1c1e;
-    --label: #f5f5f7;
-    --secondary: #c7c7cc;
-    --tertiary: #aeaeb2;
-    --separator: rgba(84, 84, 88, 0.6);
-    --fill: rgba(120, 120, 128, 0.24);
-    --tint: #0a84ff;
-    --danger: #ff453a;
-    --focus: 0 0 0 4px rgba(10, 132, 255, 0.45);
-
-    /* Dark mode glass material */
-    --glass: rgba(30, 30, 30, 0.45);
-    --glass-stroke: rgba(255, 255, 255, 0.15);
-    --glass-specular: linear-gradient(
-      135deg,
-      rgba(255, 255, 255, 0.08) 0%,
-      rgba(255, 255, 255, 0) 50%
-    );
-  }
 }
 
 * {
@@ -1540,7 +1518,14 @@ a.btn.btn--quiet:visited {
   .capture__tag,
   .voice__word,
   .voice__hint,
-  .voice__hear {
+  .voice__hear,
+  .landing__nav-shell,
+  .landing__btn--glass,
+  .landing__benefit,
+  .landing__docs-link,
+  .landing__step-number,
+  .metric-card,
+  .admin__table-section {
     background: var(--surface);
   }
 
@@ -1564,14 +1549,6 @@ a.btn.btn--quiet:visited {
   background:
     radial-gradient(120% 80% at 50% -10%, rgba(255, 255, 255, 0.9), transparent 55%),
     linear-gradient(180deg, #f5f5f7 0%, #eef0f4 42%, #f5f5f7 100%);
-}
-
-@media (prefers-color-scheme: dark) {
-  .landing {
-    background:
-      radial-gradient(100% 70% at 50% -5%, rgba(80, 90, 110, 0.35), transparent 50%),
-      linear-gradient(180deg, #000 0%, #0a0a0c 45%, #000 100%);
-  }
 }
 
 .landing__atmosphere {
@@ -2512,11 +2489,4 @@ a.btn.btn--quiet:visited {
 .admin__face-footer .btn,
 .admin__face-footer .toast {
   pointer-events: auto;
-}
-
-
-@media (prefers-color-scheme: dark) {
-  .landing__benefit-icon {
-    background: rgba(255, 255, 255, 0.08);
-  }
 }
