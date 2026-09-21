@@ -66,7 +66,7 @@ function Warming() {
   );
 }
 
-type Mode = "home" | "setup" | "enroll" | "login" | "done" | "session" | "trust" | "oidc" | "oidc-login";
+type Mode = "home" | "setup" | "invite" | "enroll" | "login" | "done" | "session" | "trust" | "oidc" | "oidc-login";
 
 /**
  * `/authorize` del backend deja al usuario aquí con un identificador opaco. Se
@@ -216,6 +216,7 @@ export function App() {
   const [name, setName] = useState("");
   /** `null` = todavía no ha elegido. No hay valor por defecto: ver la pantalla. */
   const [glasses, setGlasses] = useState<boolean | null>(null);
+  const [inviteCode, setInviteCode] = useState("");
   const [session, setSession] = useState<SessionState | null>(null);
   const [enrolled, setEnrolled] = useState<EnrollResult | null>(null);
   const [oidc, setOidc] = useState<OidcRequestInfo | null>(null);
@@ -271,6 +272,7 @@ export function App() {
   function goHome() {
     setError("");
     setPendingTrust(null);
+    setInviteCode("");
     setMode("home");
     refreshGallery();
   }
@@ -361,10 +363,24 @@ export function App() {
               } catch {
                 device = undefined;
               }
-              const result = await enroll(name, groupByCondition(captures), captureShape(captures), device);
-              if (device) markDeviceTrustedLocally();
-              setEnrolled(result);
-              setMode("done");
+              try {
+                const result = await enroll(
+                  name,
+                  groupByCondition(captures),
+                  captureShape(captures),
+                  device,
+                  inviteCode || undefined,
+                );
+                if (device) markDeviceTrustedLocally();
+                setEnrolled(result);
+                setMode("done");
+              } catch (error) {
+                if (error instanceof ApiError && error.status === 401) {
+                  setError("Ese código no es válido o ya venció.");
+                } else {
+                  setError(error instanceof Error ? error.message : "Error al enrolar.");
+                }
+              }
             }}
           />
         </Suspense>
@@ -536,7 +552,7 @@ export function App() {
       */}
       {mode === "setup" && (
         <Screen id="setup" onBack={goHome}>
-          <p className="eyebrow">Paso 1 de 2</p>
+          <p className="eyebrow">Paso 1 de 3</p>
           <h1 className="display">Antes de encender la cámara</h1>
           <form
             className="stack"
@@ -544,7 +560,7 @@ export function App() {
               event.preventDefault();
               if (name.trim().length < 2 || glasses === null) return;
               setError("");
-              setMode("enroll");
+              setMode("invite");
             }}
           >
             <label className="field">
@@ -594,7 +610,45 @@ export function App() {
               type="submit"
               disabled={name.trim().length < 2 || glasses === null}
             >
-              {glasses === null ? "Elige una opción" : "Empezar la captura"}
+              {glasses === null ? "Elige una opción" : "Siguiente"}
+            </button>
+          </form>
+        </Screen>
+      )}
+
+      {mode === "invite" && (
+        <Screen id="invite" onBack={() => setMode("setup")}>
+          <p className="eyebrow">Paso 2 de 3</p>
+          <h1 className="display">Código de invitación</h1>
+          <p className="body">
+            Sin este código no podemos guardar tu rostro. Si no tienes uno, pide acceso.
+          </p>
+          <form
+            className="stack"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (inviteCode.trim().length === 0) return;
+              setError("");
+              setMode("enroll");
+            }}
+          >
+            <label className="field">
+              <span className="field__label">Código de invitación</span>
+              <input
+                className="input"
+                value={inviteCode}
+                autoFocus
+                placeholder="El que te compartieron"
+                onChange={(event) => setInviteCode(event.target.value)}
+              />
+            </label>
+
+            <button
+              className="btn btn--primary"
+              type="submit"
+              disabled={inviteCode.trim().length === 0}
+            >
+              Continuar
             </button>
           </form>
         </Screen>

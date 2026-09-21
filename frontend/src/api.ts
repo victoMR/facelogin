@@ -95,10 +95,16 @@ export function enroll(
   conditions: ConditionSamples[],
   shape?: number[],
   device?: DeviceInfo,
+  inviteToken?: string,
 ): Promise<EnrollResult> {
+  const headers: Record<string, string> = {};
+  if (inviteToken) {
+    headers.Authorization = `Bearer ${inviteToken}`;
+  }
   return request("/api/enroll", {
     method: "POST",
     body: JSON.stringify({ displayName, conditions, shape, device }),
+    headers,
   });
 }
 
