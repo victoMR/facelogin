@@ -79,6 +79,79 @@ test("ActivityLog resume entradas de hoy", () => {
   assert.equal(log.lastSeenByIdentity().get("Ana"), summary.lastAccess);
 });
 
+test("POST /admin/operators bootstrap con token y acceso facial", async () => {
+  resetRateLimits();
+  const previous = process.env.FACELOGIN_ADMIN_TOKEN;
+  process.env.FACELOGIN_ADMIN_TOKEN = "token-admin-test";
+  const dir = tempDir("facelogin-ops-");
+  const operators = new (await import("../admin-operators.js")).AdminOperatorsStore(
+    join(dir, "operators.json"),
+  );
+  const engine = engineAt(dir);
+  // Enrolar una cara sintética mínima vía engine
+  const samples = Array.from({ length: 5 }, () => {
+    const v = new Array(128).fill(0);
+    v[0] = 1;
+    return v;
+  });
+  const template = engine.enroll("Ops", samples, new Array(64).fill(0));
+
+  const router = createRouter({
+    engine,
+    sessionSecret: "session",
+    operators,
+    issuer: "http://localhost:8787",
+  });
+  const app = express();
+  app.use(express.json());
+  app.use(router);
+
+  await new Promise<void>((resolve, reject) => {
+    const server = app.listen(0, "127.0.0.1", async () => {
+      try {
+        const { port } = server.address() as { port: number };
+        const status = await fetch(`http://127.0.0.1:${port}/admin/bootstrap`);
+        const boot = await status.json();
+        assert.equal(boot.bootstrapped, false);
+
+        const promote = await fetch(`http://127.0.0.1:${port}/admin/operators`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: "Bearer token-admin-test",
+          },
+          body: JSON.stringify({ identityId: template.id, displayName: "Ops" }),
+        });
+        assert.equal(promote.status, 201);
+        assert.equal((await promote.json()).bootstrapped, true);
+        assert.equal(operators.isOperator(template.id), true);
+
+        const { signSession } = await import("../session.js");
+        const faceToken = await signSession("session", {
+          sub: template.id,
+          name: "Ops",
+          amr: ["face", "hwk"],
+        });
+        const metrics = await fetch(`http://127.0.0.1:${port}/admin/metrics`, {
+          headers: { Authorization: `Bearer ${faceToken}` },
+        });
+        assert.equal(metrics.status, 200);
+        const data = await metrics.json();
+        assert.equal(data.bootstrapped, true);
+        assert.equal(data.operators.length, 1);
+        resolve();
+      } catch (error) {
+        reject(error);
+      } finally {
+        server.close();
+      }
+    });
+  });
+
+  if (previous === undefined) delete process.env.FACELOGIN_ADMIN_TOKEN;
+  else process.env.FACELOGIN_ADMIN_TOKEN = previous;
+});
+
 test("POST /admin/clients exige token y crea app", async () => {
   resetRateLimits();
   const previous = process.env.FACELOGIN_ADMIN_TOKEN;

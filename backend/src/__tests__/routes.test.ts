@@ -300,7 +300,7 @@ test("DELETE /identities no borra sin token de administración", async () => {
   const handler = router.stack.find((layer: any) => layer.route?.path === "/identities" && layer.route.methods.delete)
     ?.route?.stack[0]?.handle;
   try {
-    if (handler) handler(req, res, () => {});
+    if (handler) await handler(req, res, () => {});
     assert.equal(status, 401);
     assert.equal(engine.countIdentities(), 1);
   } finally {
@@ -336,7 +336,7 @@ test("DELETE /identities vacía la galería con token de administración", async
   const handler = router.stack.find((layer: any) => layer.route?.path === "/identities" && layer.route.methods.delete)
     ?.route?.stack[0]?.handle;
   try {
-    if (handler) handler(req, res, () => {});
+    if (handler) await handler(req, res, () => {});
     assert.equal(status, 200);
     assert.equal(body.removed, 1);
     assert.equal(engine.countIdentities(), 0);

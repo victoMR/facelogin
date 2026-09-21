@@ -2495,12 +2495,25 @@ a.btn.btn--quiet:visited {
   white-space: nowrap;
 }
 
-@media (max-width: 720px) {
-  .admin__secret-row,
-  .admin__activity-item {
-    grid-template-columns: 1fr;
-  }
+.admin__face-footer {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: max(16px, env(safe-area-inset-bottom));
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px;
+  pointer-events: none;
 }
+
+.admin__face-footer .btn,
+.admin__face-footer .toast {
+  pointer-events: auto;
+}
+
 
 @media (prefers-color-scheme: dark) {
   .landing__benefit-icon {

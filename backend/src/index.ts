@@ -2,6 +2,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import dotenv from "dotenv";
 import { ActivityLog } from "./activity.js";
+import { AdminOperatorsStore } from "./admin-operators.js";
 import { createApp } from "./app.js";
 import { decryptVector, deriveMasterKey, randomSecret } from "./crypto.js";
 import { FaceEngine, conditionsOf } from "./engine.js";
@@ -144,6 +145,7 @@ async function bootstrap(): Promise<void> {
     (message) => console.warn(message),
   );
   const activity = new ActivityLog(resolve(process.cwd(), "data/admin-activity.json"));
+  const operators = new AdminOperatorsStore(resolve(process.cwd(), "data/admin-operators.json"));
   const provider = new OidcProvider({
     issuer,
     appOrigin,
@@ -160,9 +162,8 @@ async function bootstrap(): Promise<void> {
     provider,
     clients,
     activity,
+    operators,
     issuer,
-    // Se activa a mano y solo si hay un proxy real delante: si no, un
-    // `X-Forwarded-For` inventado bastaría para esquivar el rate limit por IP.
     trustProxy: process.env.FACELOGIN_TRUST_PROXY
       ? Number(process.env.FACELOGIN_TRUST_PROXY)
       : undefined,
@@ -171,7 +172,9 @@ async function bootstrap(): Promise<void> {
   app.listen(port, () => {
     console.log(`facelogin api en http://localhost:${port}`);
     console.log(`facelogin idp: ${issuer}/.well-known/openid-configuration`);
-    console.log(`facelogin admin: ${appOrigin}/admin (${clients.listPublic().length} apps)`);
+    console.log(
+      `facelogin admin: ${appOrigin}/admin (${clients.listPublic().length} apps, ${operators.count()} operadores)`,
+    );
   });
 }
 

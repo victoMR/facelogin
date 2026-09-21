@@ -1,10 +1,29 @@
 /**
- * Admin Dashboard — uso del sistema + registro de apps OIDC
- *
- * Copy de marketing: sin FAR/FPIR/LSH en UI.
+ * Admin: bootstrap con token → registrar cara de operador → entrar con la cara.
  */
 
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
+import {
+  ApiError,
+  enroll,
+  identify,
+  MAX_LOGIN_DESCRIPTORS,
+  trustDevice,
+  type ConditionSamples,
+  type IdentifyResult,
+} from "./api";
+import type { Capture } from "./FaceCapture";
+import { deviceProof, ensureDevice, isDeviceTrustedLocally, markDeviceTrustedLocally } from "./device";
+import { enrollChallenges, loginChallenges, SINGLE_CONDITION, trustedChallenges } from "./liveness";
+import { meanShape, SHAPE_DIM } from "./mesh";
+import { authenticatePasskey, passkeySupported } from "./passkey";
+
+const FaceCapture = lazy(() =>
+  import("./FaceCapture").then((module) => ({ default: module.FaceCapture })),
+);
+
+const SESSION_KEY = "facelogin.admin.session";
+const BOOTSTRAP_KEY = "facelogin.admin.bootstrap";
 
 type ActivityEvent = {
   at: string;
@@ -31,7 +50,9 @@ type AdminMetrics = {
     passkeys: number;
     conditions: string[];
     status: string;
+    isOperator?: boolean;
   }>;
+  operators?: Array<{ identityId: string; displayName: string; promotedAt: string }>;
   apps: Array<{
     client_id: string;
     name: string;
@@ -43,6 +64,7 @@ type AdminMetrics = {
     logins: number;
   }>;
   activity: ActivityEvent[];
+  bootstrapped?: boolean;
 };
 
 type CreatedCredentials = {
@@ -52,11 +74,30 @@ type CreatedCredentials = {
   redirect_uris: string[];
 };
 
-type AdminProps = {
-  onExit: () => void;
-};
+type Mode =
+  | "loading"
+  | "bootstrap-token"
+  | "bootstrap-setup"
+  | "bootstrap-enroll"
+  | "face-login"
+  | "trust"
+  | "dashboard"
+  | "emergency-token";
 
-function Screen({ id, children, onBack }: { id: string; children: React.ReactNode; onBack?: () => void }) {
+type AdminProps = { onExit: () => void };
+
+function Warming() {
+  return (
+    <section className="capture capture--warming" aria-label="Preparando la cámara">
+      <div className="capture__foot">
+        <span className="spinner spinner--light" aria-hidden="true" />
+        <p className="capture__instruction">Preparando la cámara…</p>
+      </div>
+    </section>
+  );
+}
+
+function Screen({ id, children, onBack }: { id: string; children: ReactNode; onBack?: () => void }) {
   return (
     <section className="screen screen--center" key={id}>
       <div className="screen__inner">
@@ -80,13 +121,36 @@ function Screen({ id, children, onBack }: { id: string; children: React.ReactNod
   );
 }
 
+function groupByCondition(captures: Capture[]): ConditionSamples[] {
+  const groups = new Map<string, number[][]>();
+  for (const capture of captures) {
+    const bucket = groups.get(capture.condition) ?? [];
+    bucket.push(...capture.descriptors);
+    groups.set(capture.condition, bucket);
+  }
+  return [...groups].map(([label, samples]) => ({ label, samples }));
+}
+
+function captureShape(captures: Capture[]): number[] | undefined {
+  const shape = meanShape(
+    captures.map((capture) => capture.shape ?? []).filter((item) => item.length === SHAPE_DIM),
+  );
+  return shape.length === SHAPE_DIM ? shape : undefined;
+}
+
+function bestLoginDescriptors(captures: Capture[]): number[][] {
+  return [...captures]
+    .sort((a, b) => b.quality - a.quality)
+    .flatMap((capture) => capture.descriptors.slice(0, 1))
+    .slice(0, MAX_LOGIN_DESCRIPTORS);
+}
+
 function formatWhen(iso: string | null | undefined): string {
   if (!iso) return "—";
   try {
-    return new Intl.DateTimeFormat("es", {
-      dateStyle: "medium",
-      timeStyle: "short",
-    }).format(new Date(iso));
+    return new Intl.DateTimeFormat("es", { dateStyle: "medium", timeStyle: "short" }).format(
+      new Date(iso),
+    );
   } catch {
     return iso;
   }
@@ -114,8 +178,10 @@ function kindLabel(kind: string): string {
 }
 
 export function Admin({ onExit }: AdminProps) {
-  const [mode, setMode] = useState<"login" | "dashboard">("login");
-  const [token, setToken] = useState("");
+  const [mode, setMode] = useState<Mode>("loading");
+  const [authToken, setAuthToken] = useState("");
+  const [bootstrapToken, setBootstrapToken] = useState("");
+  const [name, setName] = useState("");
   const [error, setError] = useState("");
   const [metrics, setMetrics] = useState<AdminMetrics | null>(null);
   const [loading, setLoading] = useState(false);
@@ -125,21 +191,61 @@ export function Admin({ onExit }: AdminProps) {
   const [created, setCreated] = useState<CreatedCredentials | null>(null);
   const [clearing, setClearing] = useState(false);
   const [formError, setFormError] = useState("");
+  const [pendingTrust, setPendingTrust] = useState<{
+    token: string;
+    identity: IdentifyResult["identity"];
+  } | null>(null);
+  const [operatorName, setOperatorName] = useState<string | null>(null);
 
   useEffect(() => {
-    const stored = sessionStorage.getItem("facelogin.admin.token");
-    if (stored) {
-      setToken(stored);
-      void loadMetrics(stored);
-    }
+    void import("./FaceCapture").catch(() => undefined);
+    void import("./face")
+      .then((module) => module.loadModels())
+      .catch(() => undefined);
+    void bootstrap();
   }, []);
 
-  async function loadMetrics(adminToken: string) {
+  async function bootstrap() {
+    setError("");
+    try {
+      const response = await fetch("/api/admin/bootstrap");
+      const body = (await response.json().catch(() => ({}))) as {
+        bootstrapped?: boolean;
+        error?: string;
+      };
+      if (!response.ok) throw new Error(body.error || "No se pudo consultar el panel.");
+
+      const storedSession = sessionStorage.getItem(SESSION_KEY);
+      if (body.bootstrapped && storedSession) {
+        setAuthToken(storedSession);
+        const ok = await loadMetrics(storedSession);
+        if (ok) return;
+      }
+
+      if (body.bootstrapped) {
+        setMode("face-login");
+        return;
+      }
+
+      const pending = sessionStorage.getItem(BOOTSTRAP_KEY);
+      if (pending) {
+        setBootstrapToken(pending);
+        setMode("bootstrap-setup");
+        return;
+      }
+      setMode("bootstrap-token");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error de red.");
+      setMode("bootstrap-token");
+    }
+  }
+
+  async function loadMetrics(token: string): Promise<boolean> {
     setLoading(true);
     setError("");
     try {
       const response = await fetch("/api/admin/metrics", {
-        headers: { Authorization: `Bearer ${adminToken}` },
+        headers: { Authorization: `Bearer ${token}` },
       });
       if (!response.ok) {
         const body = await response.json().catch(() => ({}));
@@ -147,47 +253,130 @@ export function Admin({ onExit }: AdminProps) {
       }
       const data = (await response.json()) as AdminMetrics;
       setMetrics(data);
+      setAuthToken(token);
       setMode("dashboard");
+      return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al cargar métricas.");
-      sessionStorage.removeItem("facelogin.admin.token");
-      setToken("");
-      setMode("login");
+      sessionStorage.removeItem(SESSION_KEY);
+      return false;
     } finally {
       setLoading(false);
     }
   }
 
-  async function handleLogin(e: React.FormEvent) {
+  async function handleBootstrapToken(e: React.FormEvent) {
     e.preventDefault();
     setError("");
-    if (!token.trim()) {
-      setError("Pega tu token de administrador.");
+    const value = bootstrapToken.trim();
+    if (!value) {
+      setError("Pega el FACELOGIN_ADMIN_TOKEN del servidor.");
       return;
     }
-    sessionStorage.setItem("facelogin.admin.token", token.trim());
-    await loadMetrics(token.trim());
+    setLoading(true);
+    try {
+      const response = await fetch("/api/admin/metrics", {
+        headers: { Authorization: `Bearer ${value}` },
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.error || "Token inválido.");
+      }
+      const data = (await response.json()) as AdminMetrics;
+      if (mode === "emergency-token" || data.bootstrapped) {
+        sessionStorage.removeItem(BOOTSTRAP_KEY);
+        setAuthToken(value);
+        setMetrics(data);
+        setMode("dashboard");
+        return;
+      }
+      sessionStorage.setItem(BOOTSTRAP_KEY, value);
+      setBootstrapToken(value);
+      setMode("bootstrap-setup");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Token inválido.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function identifyWithDevice(captures: Capture[]) {
+    let proof;
+    try {
+      proof = await deviceProof();
+    } catch {
+      proof = undefined;
+    }
+    const descriptors = bestLoginDescriptors(captures);
+    const shape = captureShape(captures);
+    try {
+      return await identify(descriptors, shape, proof);
+    } catch (error) {
+      if (!(error instanceof ApiError) || error.code !== "PASSKEY_REQUIRED") throw error;
+      const passkey = await authenticatePasskey();
+      return identify(descriptors, shape, proof, passkey);
+    }
+  }
+
+  async function enterWithFace(result: IdentifyResult) {
+    if (result.trustedDevice) {
+      markDeviceTrustedLocally();
+      sessionStorage.setItem(SESSION_KEY, result.token);
+      sessionStorage.removeItem(BOOTSTRAP_KEY);
+      setOperatorName(result.identity.displayName);
+      const ok = await loadMetrics(result.token);
+      if (!ok) {
+        setError("Tu cara entró, pero no eres operador del panel. Completa el registro inicial.");
+        setMode("face-login");
+      }
+      return;
+    }
+    setPendingTrust({ token: result.token, identity: result.identity });
+    setMode("trust");
+  }
+
+  async function confirmTrust() {
+    if (!pendingTrust) return;
+    try {
+      const device = await deviceProof();
+      const passkey = passkeySupported() ? await authenticatePasskey() : undefined;
+      await trustDevice(pendingTrust.token, device, passkey);
+      markDeviceTrustedLocally();
+      sessionStorage.setItem(SESSION_KEY, pendingTrust.token);
+      sessionStorage.removeItem(BOOTSTRAP_KEY);
+      setOperatorName(pendingTrust.identity.displayName);
+      setPendingTrust(null);
+      const ok = await loadMetrics(pendingTrust.token);
+      if (!ok) {
+        setError("Aparato confiable, pero no eres operador del panel.");
+        setMode("face-login");
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "No se pudo confiar en este aparato.");
+    }
   }
 
   function handleLogout() {
-    sessionStorage.removeItem("facelogin.admin.token");
-    setToken("");
+    sessionStorage.removeItem(SESSION_KEY);
+    sessionStorage.removeItem(BOOTSTRAP_KEY);
+    setAuthToken("");
     setMetrics(null);
     setCreated(null);
-    setMode("login");
+    setOperatorName(null);
+    void bootstrap();
   }
 
   async function handleCreateApp(e: React.FormEvent) {
     e.preventDefault();
     setFormError("");
     setCreated(null);
-    if (!token.trim()) return;
+    if (!authToken.trim()) return;
     setCreating(true);
     try {
       const response = await fetch("/api/admin/clients", {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${token.trim()}`,
+          Authorization: `Bearer ${authToken.trim()}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -197,9 +386,7 @@ export function Admin({ onExit }: AdminProps) {
         }),
       });
       const body = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(body.error || "No se pudo registrar la app.");
-      }
+      if (!response.ok) throw new Error(body.error || "No se pudo registrar la app.");
       setCreated({
         client_id: body.client.client_id,
         client_secret: body.client_secret,
@@ -208,7 +395,7 @@ export function Admin({ onExit }: AdminProps) {
       });
       setAppName("");
       setRedirectUri("");
-      await loadMetrics(token.trim());
+      await loadMetrics(authToken.trim());
     } catch (err) {
       setFormError(err instanceof Error ? err.message : "Error al registrar.");
     } finally {
@@ -216,40 +403,34 @@ export function Admin({ onExit }: AdminProps) {
     }
   }
 
-  async function handleRevoke(clientId: string, name: string) {
-    if (!token.trim()) return;
-    if (!window.confirm(`¿Revocar «${name}»? Dejará de poder iniciar sesión con facelogin.`)) return;
+  async function handleRevoke(clientId: string, label: string) {
+    if (!authToken.trim()) return;
+    if (!window.confirm(`¿Revocar «${label}»?`)) return;
     try {
       const response = await fetch(`/api/admin/clients/${encodeURIComponent(clientId)}`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${token.trim()}` },
+        headers: { Authorization: `Bearer ${authToken.trim()}` },
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error || "No se pudo revocar.");
-      await loadMetrics(token.trim());
+      await loadMetrics(authToken.trim());
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al revocar.");
     }
   }
 
   async function handleClearGallery() {
-    if (!token.trim()) return;
-    if (
-      !window.confirm(
-        "Esto borra TODAS las caras registradas. No se puede deshacer. ¿Seguro?",
-      )
-    ) {
-      return;
-    }
+    if (!authToken.trim()) return;
+    if (!window.confirm("Esto borra TODAS las caras registradas. ¿Seguro?")) return;
     setClearing(true);
     try {
       const response = await fetch("/api/identities", {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${token.trim()}` },
+        headers: { Authorization: `Bearer ${authToken.trim()}` },
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error || "No se pudo vaciar.");
-      await loadMetrics(token.trim());
+      await loadMetrics(authToken.trim());
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al vaciar.");
     } finally {
@@ -265,43 +446,215 @@ export function Admin({ onExit }: AdminProps) {
     }
   }
 
-  if (mode === "login") {
+  if (mode === "loading") {
     return (
       <main className="app">
-        <Screen id="admin-login" onBack={onExit}>
-          <span className="glyph" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none">
-              <path
-                d="M12 2.8 4.5 6v6c0 4.2 3 7.7 7.5 9.2 4.5-1.5 7.5-5 7.5-9.2V6L12 2.8Z"
-                stroke="currentColor"
-                strokeWidth="1.4"
-                strokeLinejoin="round"
-              />
-              <circle cx="12" cy="11" r="1.5" fill="currentColor" />
-            </svg>
-          </span>
+        <Screen id="admin-loading">
+          <p className="body">Preparando el panel…</p>
+        </Screen>
+      </main>
+    );
+  }
+
+  if (mode === "bootstrap-token" || mode === "emergency-token") {
+    return (
+      <main className="app">
+        <Screen id="admin-token" onBack={onExit}>
           <p className="eyebrow">Panel facelogin</p>
-          <h1 className="display">Solo administradores</h1>
+          <h1 className="display">
+            {mode === "emergency-token" ? "Token de emergencia" : "Primera vez"}
+          </h1>
           <p className="body">
-            Pega el <code>FACELOGIN_ADMIN_TOKEN</code> de tu servidor. Si acabas de arrancar
-            facelogin por primera vez, ya se generó solo en el <code>.env</code>.
+            {mode === "emergency-token"
+              ? "Usa el FACELOGIN_ADMIN_TOKEN del servidor si no puedes entrar con la cara."
+              : "Pega el FACELOGIN_ADMIN_TOKEN (está en el .env del servidor). Después registras tu cara y ya no lo necesitas."}
           </p>
-          <form className="stack" onSubmit={handleLogin}>
+          <form className="stack" onSubmit={handleBootstrapToken}>
             <label className="field">
               <span className="field__label">Token de administrador</span>
               <input
                 className="input"
                 type="password"
-                value={token}
+                value={bootstrapToken}
                 autoFocus
                 placeholder="FACELOGIN_ADMIN_TOKEN"
-                onChange={(e) => setToken(e.target.value)}
+                onChange={(e) => setBootstrapToken(e.target.value)}
               />
             </label>
-            <button className="btn btn--primary" type="submit" disabled={loading || !token.trim()}>
-              {loading ? "Validando..." : "Entrar"}
+            <button className="btn btn--primary" type="submit" disabled={loading || !bootstrapToken.trim()}>
+              {loading ? "Validando…" : "Continuar"}
+            </button>
+            {mode === "emergency-token" && (
+              <button className="btn btn--quiet" type="button" onClick={() => setMode("face-login")}>
+                Volver a entrar con la cara
+              </button>
+            )}
+          </form>
+          {error && (
+            <p className="toast" role="alert">
+              {error}
+            </p>
+          )}
+        </Screen>
+      </main>
+    );
+  }
+
+  if (mode === "bootstrap-setup") {
+    return (
+      <main className="app">
+        <Screen id="admin-setup" onBack={() => setMode("bootstrap-token")}>
+          <p className="eyebrow">Paso 2 · Tu cara</p>
+          <h1 className="display">Registra al operador</h1>
+          <p className="body">
+            Esta cara será la llave del panel. Tú mismo entrarás después con «Entrar con tu cara».
+          </p>
+          <form
+            className="stack"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (name.trim().length < 2) return;
+              setError("");
+              setMode("bootstrap-enroll");
+            }}
+          >
+            <label className="field">
+              <span className="field__label">Tu nombre</span>
+              <input
+                className="input"
+                value={name}
+                autoFocus
+                placeholder="Cómo te reconocemos en el panel"
+                onChange={(e) => setName(e.target.value)}
+              />
+            </label>
+            <button className="btn btn--primary" type="submit" disabled={name.trim().length < 2}>
+              Encender la cámara
             </button>
           </form>
+          {error && (
+            <p className="toast" role="alert">
+              {error}
+            </p>
+          )}
+        </Screen>
+      </main>
+    );
+  }
+
+  if (mode === "bootstrap-enroll") {
+    return (
+      <main className="app">
+        <Suspense fallback={<Warming />}>
+          <FaceCapture
+            title="Registrar operador"
+            flow="enroll"
+            challenges={enrollChallenges}
+            conditions={SINGLE_CONDITION}
+            error={error}
+            onError={setError}
+            onCancel={() => setMode("bootstrap-setup")}
+            onComplete={async (captures) => {
+              setError("");
+              try {
+                const device = await ensureDevice();
+                const result = await enroll(
+                  name.trim(),
+                  groupByCondition(captures),
+                  captureShape(captures),
+                  device,
+                );
+                const promote = await fetch("/api/admin/operators", {
+                  method: "POST",
+                  headers: {
+                    Authorization: `Bearer ${bootstrapToken.trim()}`,
+                    "Content-Type": "application/json",
+                  },
+                  body: JSON.stringify({
+                    identityId: result.id,
+                    displayName: result.displayName,
+                  }),
+                });
+                const body = await promote.json().catch(() => ({}));
+                if (!promote.ok) {
+                  throw new Error(body.error || "No se pudo promover al operador.");
+                }
+                markDeviceTrustedLocally();
+                sessionStorage.removeItem(BOOTSTRAP_KEY);
+                setOperatorName(result.displayName);
+                setMode("face-login");
+              } catch (cause) {
+                setError(cause instanceof Error ? cause.message : "No se pudo registrar.");
+                setMode("bootstrap-setup");
+              }
+            }}
+          />
+        </Suspense>
+        {error && (
+          <p className="toast" role="alert">
+            {error}
+          </p>
+        )}
+      </main>
+    );
+  }
+
+  if (mode === "face-login") {
+    return (
+      <main className="app">
+        <Suspense fallback={<Warming />}>
+          <FaceCapture
+            title="Entrar al panel"
+            flow="login"
+            challenges={isDeviceTrustedLocally() ? trustedChallenges : loginChallenges}
+            conditions={SINGLE_CONDITION}
+            error={error}
+            forceVoice={!isDeviceTrustedLocally()}
+            onError={setError}
+            onCancel={onExit}
+            onComplete={async (captures) => {
+              setError("");
+              try {
+                const result = await identifyWithDevice(captures);
+                await enterWithFace(result);
+              } catch (cause) {
+                setError(cause instanceof Error ? cause.message : "No te reconocimos.");
+              }
+            }}
+          />
+        </Suspense>
+        <div className="admin__face-footer">
+          <button className="btn btn--quiet" type="button" onClick={() => setMode("emergency-token")}>
+            Usar token de emergencia
+          </button>
+          {error && (
+            <p className="toast" role="alert">
+              {error}
+            </p>
+          )}
+        </div>
+      </main>
+    );
+  }
+
+  if (mode === "trust" && pendingTrust) {
+    return (
+      <main className="app">
+        <Screen id="admin-trust">
+          <p className="eyebrow">Aparato nuevo</p>
+          <h1 className="display">Confía en este aparato</h1>
+          <p className="body">
+            Hola, {pendingTrust.identity.displayName}. Confirma para entrar al panel sin pedir
+            passkey cada vez.
+          </p>
+          <div className="stack">
+            <button className="btn btn--primary" type="button" onClick={() => void confirmTrust()}>
+              Confiar y entrar
+            </button>
+            <button className="btn btn--quiet" type="button" onClick={() => setMode("face-login")}>
+              Cancelar
+            </button>
+          </div>
           {error && (
             <p className="toast" role="alert">
               {error}
@@ -321,7 +674,7 @@ export function Admin({ onExit }: AdminProps) {
               <p className="eyebrow">Panel facelogin</p>
               <h1 className="admin__title">Operación</h1>
               <p className="admin__subtitle">
-                Personas, apps conectadas y actividad en vivo
+                {operatorName ? `Sesión de ${operatorName}` : "Personas, apps y actividad"}
                 {metrics?.issuer ? (
                   <>
                     {" "}
@@ -331,7 +684,7 @@ export function Admin({ onExit }: AdminProps) {
               </p>
             </div>
             <div className="admin__header-actions">
-              <button className="btn btn--quiet" type="button" onClick={() => void loadMetrics(token)}>
+              <button className="btn btn--quiet" type="button" onClick={() => void loadMetrics(authToken)}>
                 Actualizar
               </button>
               <button className="btn btn--quiet" type="button" onClick={handleLogout}>
@@ -366,19 +719,17 @@ export function Admin({ onExit }: AdminProps) {
                 <div className="metric-card__label">Apps</div>
                 <div className="metric-card__value">{metrics.oidcClients}</div>
               </div>
-              <div className="metric-card metric-card--wide">
-                <div className="metric-card__label">Último acceso</div>
-                <div className="metric-card__value metric-card__value--small">
-                  {formatWhen(metrics.lastAccess)}
-                </div>
+              <div className="metric-card">
+                <div className="metric-card__label">Operadores</div>
+                <div className="metric-card__value">{metrics.operators?.length ?? 0}</div>
               </div>
             </div>
 
             <section className="admin__panel" id="registrar-app">
               <h2 className="admin__table-title">Registrar app</h2>
               <p className="admin__hint">
-                Genera <code>client_id</code> y <code>client_secret</code> para tu producto (p. ej.
-                Tetris). El secret solo se muestra una vez.
+                Genera <code>client_id</code> y <code>client_secret</code>. El secret solo se muestra
+                una vez.
               </p>
               <form className="admin__form" onSubmit={handleCreateApp}>
                 <label className="field">
@@ -439,10 +790,6 @@ export function Admin({ onExit }: AdminProps) {
                       </button>
                     </div>
                   )}
-                  <p className="admin__hint">
-                    En Vercel de tu app: pega esos dos valores. Redirect registrada:{" "}
-                    <code>{created.redirect_uris[0]}</code>
-                  </p>
                 </div>
               )}
             </section>
@@ -450,7 +797,7 @@ export function Admin({ onExit }: AdminProps) {
             <section className="admin__table-section">
               <h2 className="admin__table-title">Apps conectadas</h2>
               {metrics.apps.length === 0 ? (
-                <p className="admin__empty">Ninguna app aún. Registra la primera arriba.</p>
+                <p className="admin__empty">Ninguna app aún.</p>
               ) : (
                 <div className="admin__table-wrap">
                   <table className="admin__table">
@@ -460,28 +807,18 @@ export function Admin({ onExit }: AdminProps) {
                         <th>client_id</th>
                         <th>Redirect</th>
                         <th>Entradas</th>
-                        <th>Origen</th>
                         <th />
                       </tr>
                     </thead>
                     <tbody>
                       {metrics.apps.map((app) => (
                         <tr key={app.client_id}>
-                          <td>
-                            {app.name}
-                            {app.confidential ? "" : " · pública"}
-                          </td>
+                          <td>{app.name}</td>
                           <td>
                             <code>{app.client_id}</code>
                           </td>
                           <td className="admin__uri">{app.redirect_uris.join(", ")}</td>
-                          <td>
-                            {app.logins}
-                            {app.lastUsed ? (
-                              <span className="admin__muted"> · {formatWhen(app.lastUsed)}</span>
-                            ) : null}
-                          </td>
-                          <td>{app.source === "env" ? "Env" : "Admin"}</td>
+                          <td>{app.logins}</td>
                           <td>
                             {app.source === "admin" ? (
                               <button
@@ -492,7 +829,7 @@ export function Admin({ onExit }: AdminProps) {
                                 Revocar
                               </button>
                             ) : (
-                              <span className="admin__muted">Fijo</span>
+                              <span className="admin__muted">Env</span>
                             )}
                           </td>
                         </tr>
@@ -525,8 +862,7 @@ export function Admin({ onExit }: AdminProps) {
                         <th>Nombre</th>
                         <th>Registrado</th>
                         <th>Última entrada</th>
-                        <th>Aparatos</th>
-                        <th>Estado</th>
+                        <th>Rol</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -535,10 +871,7 @@ export function Admin({ onExit }: AdminProps) {
                           <td>{person.name}</td>
                           <td>{formatWhen(person.enrolledAt)}</td>
                           <td>{formatWhen(person.lastSeen)}</td>
-                          <td>
-                            {person.devices} · {person.passkeys} passkeys
-                          </td>
-                          <td>{person.status}</td>
+                          <td>{person.isOperator ? "Operador" : person.status}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -550,7 +883,7 @@ export function Admin({ onExit }: AdminProps) {
             <section className="admin__table-section">
               <h2 className="admin__table-title">Actividad reciente</h2>
               {metrics.activity.length === 0 ? (
-                <p className="admin__empty">Aún no hay eventos. Aparecerán al registrar o entrar.</p>
+                <p className="admin__empty">Aún no hay eventos.</p>
               ) : (
                 <ul className="admin__activity">
                   {metrics.activity.map((event, index) => (

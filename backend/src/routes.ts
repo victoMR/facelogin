@@ -24,6 +24,7 @@ import {
 import { readSession, sessionIsFresh, signSession, type SessionAmr } from "./session.js";
 import { issueVoiceChallenge } from "./words.js";
 import type { ActivityLog } from "./activity.js";
+import type { AdminOperatorsStore } from "./admin-operators.js";
 import type { ManagedClientRegistry } from "./oidc/managed-clients.js";
 import {
   authenticationOptions,
@@ -40,6 +41,7 @@ export type RouterOptions = {
   webauthn?: WebAuthnConfig;
   clients?: ManagedClientRegistry | null;
   activity?: ActivityLog | null;
+  operators?: AdminOperatorsStore | null;
   issuer?: string;
 };
 
@@ -182,16 +184,36 @@ function enrollAuthorized(req: Request): { authorized: boolean; isCanary: boolea
   return { authorized: constantTimeEquals(token, expected), isCanary: false };
 }
 
-/** El borrado nunca queda abierto: sin FACELOGIN_ADMIN_TOKEN, nadie vacía la galería. */
-function adminAuthorized(req: Request): { authorized: boolean; isCanary: boolean } {
-  const expected = process.env.FACELOGIN_ADMIN_TOKEN;
-  if (!expected) return { authorized: false, isCanary: false };
-
+/** El borrado / panel: token de entorno O sesión facial de un operador. */
+async function resolveAdminAuth(
+  req: Request,
+  sessionSecret: string,
+  operators: AdminOperatorsStore | null,
+): Promise<{ authorized: boolean; isCanary: boolean; via: "token" | "face" | null }> {
   const token = bearerToken(req);
+  if (!token) return { authorized: false, isCanary: false, via: null };
+
   if (isCanaryToken(token)) {
-    return { authorized: false, isCanary: true };
+    return { authorized: false, isCanary: true, via: null };
   }
-  return { authorized: constantTimeEquals(token, expected), isCanary: false };
+
+  const expected = process.env.FACELOGIN_ADMIN_TOKEN;
+  if (expected && constantTimeEquals(token, expected)) {
+    return { authorized: true, isCanary: false, via: "token" };
+  }
+
+  if (operators) {
+    try {
+      const session = await readSession(sessionSecret, token);
+      if (operators.isOperator(session.sub)) {
+        return { authorized: true, isCanary: false, via: "face" };
+      }
+    } catch {
+      /* no es sesión facial */
+    }
+  }
+
+  return { authorized: false, isCanary: false, via: null };
 }
 
 export function createRouter(
@@ -212,9 +234,24 @@ export function createRouter(
   const webauthn = options.webauthn ?? webAuthnFromOrigin("http://localhost:5173");
   const clients = options.clients ?? null;
   const activity = options.activity ?? null;
+  const operators = options.operators ?? null;
   const issuer = options.issuer ?? null;
 
   const router = Router();
+
+  async function requireAdmin(req: Request, res: import("express").Response): Promise<boolean> {
+    const auth = await resolveAdminAuth(req, sessionSecret, operators);
+    if (auth.isCanary) {
+      handleCanaryAccess(bearerToken(req), req.ip ?? "local");
+      res.status(401).json({ error: "No autorizado." });
+      return false;
+    }
+    if (!auth.authorized) {
+      res.status(401).json({ error: "No autorizado." });
+      return false;
+    }
+    return true;
+  }
 
   router.get("/health", (_req, res) => {
     res.json({ ok: true, mode: "face-only" });
@@ -228,17 +265,8 @@ export function createRouter(
     res.json({ count: engine.countIdentities() });
   });
 
-  router.delete("/identities", (req, res) => {
-    const { authorized, isCanary } = adminAuthorized(req);
-    if (isCanary) {
-      handleCanaryAccess(bearerToken(req), req.ip ?? "local");
-      res.status(401).json({ error: "No autorizado." });
-      return;
-    }
-    if (!authorized) {
-      res.status(401).json({ error: "No autorizado." });
-      return;
-    }
+  router.delete("/identities", async (req, res) => {
+    if (!(await requireAdmin(req, res))) return;
     if (!rateLimit("identities-clear", req.ip ?? "local", 6, 60_000)) {
       res.status(429).json({ error: "Demasiados borrados. Espera un momento." });
       return;
@@ -684,17 +712,80 @@ export function createRouter(
     }
   });
 
-  router.get("/admin/metrics", (req, res) => {
-    const { authorized, isCanary } = adminAuthorized(req);
-    if (isCanary) {
+  router.get("/admin/bootstrap", (req, res) => {
+    if (!rateLimit("admin-bootstrap", req.ip ?? "local", 60, 60_000)) {
+      res.status(429).json({ error: "Demasiadas consultas. Espera un momento." });
+      return;
+    }
+    const count = operators?.count() ?? 0;
+    res.json({
+      bootstrapped: count > 0,
+      operators: count,
+      adminTokenConfigured: Boolean(process.env.FACELOGIN_ADMIN_TOKEN),
+    });
+  });
+
+  router.post("/admin/operators", async (req, res) => {
+    if (!operators) {
+      res.status(503).json({ error: "Operadores no disponibles." });
+      return;
+    }
+    if (!rateLimit("admin-operators", req.ip ?? "local", 20, 60_000)) {
+      res.status(429).json({ error: "Demasiadas altas. Espera un momento." });
+      return;
+    }
+
+    const auth = await resolveAdminAuth(req, sessionSecret, operators);
+    if (auth.isCanary) {
       handleCanaryAccess(bearerToken(req), req.ip ?? "local");
       res.status(401).json({ error: "No autorizado." });
       return;
     }
-    if (!authorized) {
+
+    // El primer operador solo se crea con el token de entorno (bootstrap).
+    if (operators.count() === 0) {
+      const expected = process.env.FACELOGIN_ADMIN_TOKEN;
+      const token = bearerToken(req);
+      if (!expected || !token || !constantTimeEquals(token, expected)) {
+        res.status(401).json({
+          error: "Para el primer administrador hace falta el FACELOGIN_ADMIN_TOKEN.",
+        });
+        return;
+      }
+    } else if (!auth.authorized) {
       res.status(401).json({ error: "No autorizado." });
       return;
     }
+
+    const parsed = z
+      .object({
+        identityId: z.string().trim().min(8).max(128),
+        displayName: z.string().trim().min(1).max(64).optional(),
+      })
+      .safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Indica la identidad a promover." });
+      return;
+    }
+
+    const summaries = engine.listIdentitySummaries();
+    const person = summaries.find((item) => item.id === parsed.data.identityId);
+    if (!person) {
+      res.status(404).json({ error: "Esa identidad no existe en la galería." });
+      return;
+    }
+
+    const operator = operators.promote(person.id, parsed.data.displayName ?? person.name);
+    activity?.record({
+      kind: "enroll",
+      detail: "Operador de admin promovido",
+      identity: operator.displayName,
+    });
+    res.status(201).json({ operator, bootstrapped: true });
+  });
+
+  router.get("/admin/metrics", async (req, res) => {
+    if (!(await requireAdmin(req, res))) return;
     if (!rateLimit("admin-metrics", req.ip ?? "local", 30, 60_000)) {
       res.status(429).json({ error: "Demasiadas consultas. Espera un momento." });
       return;
@@ -717,6 +808,7 @@ export function createRouter(
       if (!prev.lastUsed) prev.lastUsed = event.at;
       loginsByClient.set(event.clientId, prev);
     }
+    const operatorIds = new Set((operators?.list() ?? []).map((item) => item.identityId));
     const identities = engine.listIdentitySummaries().map((person) => ({
       id: person.id,
       name: person.name,
@@ -726,6 +818,7 @@ export function createRouter(
       passkeys: person.passkeys,
       conditions: person.conditions,
       status: lastSeen.has(person.name) ? "Activa" : "Registrada",
+      isOperator: operatorIds.has(person.id),
     }));
 
     res.json({
@@ -737,6 +830,7 @@ export function createRouter(
       lastAccess: summary.lastAccess,
       issuer,
       identities,
+      operators: operators?.list() ?? [],
       apps: apps.map((app) => {
         const stats = loginsByClient.get(app.client_id);
         return {
@@ -752,6 +846,7 @@ export function createRouter(
       }),
       activity: activity?.recent(50) ?? [],
       adminConfigured: Boolean(process.env.FACELOGIN_ADMIN_TOKEN),
+      bootstrapped: (operators?.count() ?? 0) > 0,
     });
   });
 
@@ -761,17 +856,8 @@ export function createRouter(
     confidential: z.boolean().optional(),
   });
 
-  router.post("/admin/clients", (req, res) => {
-    const { authorized, isCanary } = adminAuthorized(req);
-    if (isCanary) {
-      handleCanaryAccess(bearerToken(req), req.ip ?? "local");
-      res.status(401).json({ error: "No autorizado." });
-      return;
-    }
-    if (!authorized) {
-      res.status(401).json({ error: "No autorizado." });
-      return;
-    }
+  router.post("/admin/clients", async (req, res) => {
+    if (!(await requireAdmin(req, res))) return;
     if (!clients) {
       res.status(503).json({ error: "El registro de clientes no está disponible." });
       return;
@@ -805,17 +891,8 @@ export function createRouter(
     }
   });
 
-  router.delete("/admin/clients/:clientId", (req, res) => {
-    const { authorized, isCanary } = adminAuthorized(req);
-    if (isCanary) {
-      handleCanaryAccess(bearerToken(req), req.ip ?? "local");
-      res.status(401).json({ error: "No autorizado." });
-      return;
-    }
-    if (!authorized) {
-      res.status(401).json({ error: "No autorizado." });
-      return;
-    }
+  router.delete("/admin/clients/:clientId", async (req, res) => {
+    if (!(await requireAdmin(req, res))) return;
     if (!clients) {
       res.status(503).json({ error: "El registro de clientes no está disponible." });
       return;
