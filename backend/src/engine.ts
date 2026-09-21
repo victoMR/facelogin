@@ -157,6 +157,25 @@ export class FaceEngine {
     return this.store.all().map((template) => template.displayName);
   }
 
+  /** Resumen para el panel admin: sin descriptores ni blobs cifrados. */
+  listIdentitySummaries(): Array<{
+    id: string;
+    name: string;
+    enrolledAt: string;
+    devices: number;
+    passkeys: number;
+    conditions: string[];
+  }> {
+    return this.store.all().map((template) => ({
+      id: template.id,
+      name: template.displayName,
+      enrolledAt: template.createdAt,
+      devices: (template.devices ?? []).length,
+      passkeys: (template.passkeys ?? []).length,
+      conditions: template.conditions.map((condition) => condition.label),
+    }));
+  }
+
   countIdentities(): number {
     return this.store.all().length;
   }

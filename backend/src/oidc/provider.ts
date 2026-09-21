@@ -19,7 +19,8 @@ export type ProviderOptions = {
   /** Origen de la interfaz donde vive el flujo facial. */
   appOrigin: string;
   keyRing: KeyRing;
-  clients: OidcClient[];
+  /** Lista estática o un registro vivo (p. ej. ManagedClientRegistry). */
+  clients: OidcClient[] | ClientRegistry;
   pairwiseSalt: string;
   codeTtlMs?: number;
   requestTtlMs?: number;
@@ -94,7 +95,9 @@ export class OidcProvider {
   constructor(options: ProviderOptions) {
     this.issuer = options.issuer.replace(/\/+$/, "");
     this.appOrigin = options.appOrigin.replace(/\/+$/, "");
-    this.registry = createRegistry(options.clients);
+    this.registry = Array.isArray(options.clients)
+      ? createRegistry(options.clients)
+      : options.clients;
     this.keyRing = options.keyRing;
     this.pairwiseSalt = options.pairwiseSalt;
     this.accessTokenTtlSec = options.accessTokenTtlSec ?? 900;

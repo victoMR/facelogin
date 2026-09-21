@@ -16,6 +16,7 @@ import cors from "cors";
 import { z } from "zod";
 import { readSession } from "../session.js";
 import { rateLimit } from "../routes.js";
+import type { ActivityLog } from "../activity.js";
 import type { OidcProvider } from "./provider.js";
 
 const TOKEN_LIMIT = { max: 30, windowMs: 60_000 };
@@ -66,7 +67,7 @@ function bearer(req: Request): string {
   return header.startsWith("Bearer ") ? header.slice(7).trim() : "";
 }
 
-export function createOidcRouter(provider: OidcProvider): Router {
+export function createOidcRouter(provider: OidcProvider, activity: ActivityLog | null = null): Router {
   const router = Router();
 
   // Los endpoints públicos del estándar tienen que ser accesibles desde el
@@ -125,6 +126,14 @@ export function createOidcRouter(provider: OidcProvider): Router {
         res.status(result.status).json(result.body);
         return;
       }
+      const basic = basicAuth(req);
+      const clientId =
+        (typeof req.body?.client_id === "string" ? req.body.client_id : null) || basic?.clientId || undefined;
+      activity?.record({
+        kind: "oidc_token",
+        detail: "App canjeó código OIDC",
+        clientId,
+      });
       res.json(result.response);
     },
   );

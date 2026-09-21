@@ -23,6 +23,8 @@ import {
 } from "./redact.js";
 import { readSession, sessionIsFresh, signSession, type SessionAmr } from "./session.js";
 import { issueVoiceChallenge } from "./words.js";
+import type { ActivityLog } from "./activity.js";
+import type { ManagedClientRegistry } from "./oidc/managed-clients.js";
 import {
   authenticationOptions,
   registrationOptions,
@@ -31,6 +33,15 @@ import {
   webAuthnFromOrigin,
   type WebAuthnConfig,
 } from "./passkeys.js";
+
+export type RouterOptions = {
+  engine: FaceEngine;
+  sessionSecret: string;
+  webauthn?: WebAuthnConfig;
+  clients?: ManagedClientRegistry | null;
+  activity?: ActivityLog | null;
+  issuer?: string;
+};
 
 const vectorSchema = z.array(z.number().finite()).length(128);
 const shapeSchema = z.array(z.number().finite()).length(64).optional();
@@ -184,10 +195,25 @@ function adminAuthorized(req: Request): { authorized: boolean; isCanary: boolean
 }
 
 export function createRouter(
-  engine: FaceEngine,
-  sessionSecret: string,
-  webauthn: WebAuthnConfig = webAuthnFromOrigin("http://localhost:5173"),
+  engineOrOptions: FaceEngine | RouterOptions,
+  sessionSecretArg?: string,
+  webauthnArg: WebAuthnConfig = webAuthnFromOrigin("http://localhost:5173"),
 ): Router {
+  const options: RouterOptions =
+    typeof engineOrOptions === "object" && engineOrOptions !== null && "engine" in engineOrOptions
+      ? (engineOrOptions as RouterOptions)
+      : {
+          engine: engineOrOptions as FaceEngine,
+          sessionSecret: sessionSecretArg as string,
+          webauthn: webauthnArg,
+        };
+  const engine = options.engine;
+  const sessionSecret = options.sessionSecret;
+  const webauthn = options.webauthn ?? webAuthnFromOrigin("http://localhost:5173");
+  const clients = options.clients ?? null;
+  const activity = options.activity ?? null;
+  const issuer = options.issuer ?? null;
+
   const router = Router();
 
   router.get("/health", (_req, res) => {
@@ -218,6 +244,10 @@ export function createRouter(
       return;
     }
     const removed = engine.clearGallery();
+    activity?.record({
+      kind: "gallery_cleared",
+      detail: `Galería vaciada (${removed} identidades)`,
+    });
     res.json({ ok: true, removed });
   });
 
@@ -372,6 +402,11 @@ export function createRouter(
         parsed.data.shape,
         parsed.data.device,
       );
+      activity?.record({
+        kind: "enroll",
+        detail: `Persona registrada`,
+        identity: template.displayName,
+      });
       const safeResponse = redactEnrollResponse(template);
       res.json(safeResponse);
     } catch (error) {
@@ -435,6 +470,10 @@ export function createRouter(
       if (!decision.matched || !decision.identityId || !decision.displayName) {
         const logEntry = redactMatchDecisionForLog(decision, ip);
         console.log("[identify] rechazado", JSON.stringify(logEntry));
+        activity?.record({
+          kind: "login_fail",
+          detail: "No hubo coincidencia",
+        });
 
         const failResponse = redactFailedIdentifyResponse();
         res.status(401).json(failResponse);
@@ -481,6 +520,12 @@ export function createRouter(
         sub: decision.identityId,
         name: decision.displayName,
         amr,
+      });
+
+      activity?.record({
+        kind: "login_ok",
+        detail: trustedDevice ? "Entrada con aparato de confianza" : "Entrada con passkey",
+        identity: decision.displayName,
       });
 
       res.json({
@@ -655,9 +700,150 @@ export function createRouter(
       return;
     }
 
+    const summary = activity?.summary() ?? {
+      todayLogins: 0,
+      weekLogins: 0,
+      todayFails: 0,
+      lastAccess: null,
+    };
+    const lastSeen = activity?.lastSeenByIdentity() ?? new Map<string, string>();
+    const apps = clients?.listPublic() ?? [];
+    const tokenEvents = (activity?.recent(200) ?? []).filter((event) => event.kind === "oidc_token");
+    const loginsByClient = new Map<string, { count: number; lastUsed: string | null }>();
+    for (const event of tokenEvents) {
+      if (!event.clientId) continue;
+      const prev = loginsByClient.get(event.clientId) ?? { count: 0, lastUsed: null };
+      prev.count += 1;
+      if (!prev.lastUsed) prev.lastUsed = event.at;
+      loginsByClient.set(event.clientId, prev);
+    }
+    const identities = engine.listIdentitySummaries().map((person) => ({
+      id: person.id,
+      name: person.name,
+      enrolledAt: person.enrolledAt,
+      lastSeen: lastSeen.get(person.name) ?? null,
+      devices: person.devices,
+      passkeys: person.passkeys,
+      conditions: person.conditions,
+      status: lastSeen.has(person.name) ? "Activa" : "Registrada",
+    }));
+
     res.json({
       enrolledIdentities: engine.countIdentities(),
+      todayLogins: summary.todayLogins,
+      weekLogins: summary.weekLogins,
+      todayFails: summary.todayFails,
+      oidcClients: apps.length,
+      lastAccess: summary.lastAccess,
+      issuer,
+      identities,
+      apps: apps.map((app) => {
+        const stats = loginsByClient.get(app.client_id);
+        return {
+          client_id: app.client_id,
+          name: app.name,
+          redirect_uris: app.redirect_uris,
+          confidential: app.confidential,
+          source: app.source,
+          createdAt: app.createdAt,
+          lastUsed: stats?.lastUsed ?? null,
+          logins: stats?.count ?? 0,
+        };
+      }),
+      activity: activity?.recent(50) ?? [],
+      adminConfigured: Boolean(process.env.FACELOGIN_ADMIN_TOKEN),
     });
+  });
+
+  const createClientSchema = z.object({
+    name: z.string().trim().min(2).max(128),
+    redirect_uris: z.array(z.string().trim().min(1)).min(1).max(8),
+    confidential: z.boolean().optional(),
+  });
+
+  router.post("/admin/clients", (req, res) => {
+    const { authorized, isCanary } = adminAuthorized(req);
+    if (isCanary) {
+      handleCanaryAccess(bearerToken(req), req.ip ?? "local");
+      res.status(401).json({ error: "No autorizado." });
+      return;
+    }
+    if (!authorized) {
+      res.status(401).json({ error: "No autorizado." });
+      return;
+    }
+    if (!clients) {
+      res.status(503).json({ error: "El registro de clientes no está disponible." });
+      return;
+    }
+    if (!rateLimit("admin-clients-create", req.ip ?? "local", 20, 60_000)) {
+      res.status(429).json({ error: "Demasiadas altas. Espera un momento." });
+      return;
+    }
+
+    const parsed = createClientSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({
+        error: "Datos inválidos. Indica nombre y al menos una redirect URI https.",
+      });
+      return;
+    }
+
+    try {
+      const created = clients.create(parsed.data);
+      activity?.record({
+        kind: "client_created",
+        detail: `App registrada: ${created.client.name}`,
+        clientId: created.client.client_id,
+      });
+      res.status(201).json(created);
+    } catch (error) {
+      const status =
+        typeof error === "object" && error && "status" in error ? Number(error.status) : 400;
+      const message = error instanceof Error ? error.message : "No se pudo registrar la app.";
+      res.status(status).json({ error: message });
+    }
+  });
+
+  router.delete("/admin/clients/:clientId", (req, res) => {
+    const { authorized, isCanary } = adminAuthorized(req);
+    if (isCanary) {
+      handleCanaryAccess(bearerToken(req), req.ip ?? "local");
+      res.status(401).json({ error: "No autorizado." });
+      return;
+    }
+    if (!authorized) {
+      res.status(401).json({ error: "No autorizado." });
+      return;
+    }
+    if (!clients) {
+      res.status(503).json({ error: "El registro de clientes no está disponible." });
+      return;
+    }
+    if (!rateLimit("admin-clients-delete", req.ip ?? "local", 20, 60_000)) {
+      res.status(429).json({ error: "Demasiados borrados. Espera un momento." });
+      return;
+    }
+
+    const clientId = String(req.params.clientId ?? "");
+    try {
+      const removed = clients.revoke(clientId);
+      if (!removed) {
+        res.status(404).json({ error: "Cliente no encontrado." });
+        return;
+      }
+      activity?.record({
+        kind: "client_revoked",
+        detail: `App revocada`,
+        clientId,
+      });
+      res.json({ ok: true, client_id: clientId });
+    } catch (error) {
+      const status =
+        typeof error === "object" && error && "status" in error ? Number(error.status) : 400;
+      const message = error instanceof Error ? error.message : "No se pudo revocar.";
+      res.status(status).json({ error: message });
+    }
   });
 
   return router;

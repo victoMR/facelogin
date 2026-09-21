@@ -1,10 +1,11 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import dotenv from "dotenv";
+import { ActivityLog } from "./activity.js";
 import { createApp } from "./app.js";
 import { decryptVector, deriveMasterKey, randomSecret } from "./crypto.js";
 import { FaceEngine, conditionsOf } from "./engine.js";
-import { loadClients } from "./oidc/clients.js";
+import { ManagedClientRegistry } from "./oidc/managed-clients.js";
 import { generatePrivateKeyMaterial, loadKeyRing } from "./oidc/keys.js";
 import { OidcProvider } from "./oidc/provider.js";
 import { VaultStore } from "./store.js";
@@ -37,6 +38,8 @@ type Secrets = {
   oidcPrivateKey: string;
   /** Sal del HMAC que deriva el `sub` pairwise. Rotarla re-identifica a todos. */
   oidcPairwiseSalt: string;
+  /** Bearer del panel /admin y del borrado de galería. */
+  adminToken: string;
 };
 
 /**
@@ -52,6 +55,7 @@ function ensureEnv(): Secrets {
     lshHmacKey: process.env.FACELOGIN_LSH_HMAC_KEY,
     oidcPrivateKey: process.env.FACELOGIN_OIDC_PRIVATE_KEY,
     oidcPairwiseSalt: process.env.FACELOGIN_OIDC_PAIRWISE_SALT,
+    adminToken: process.env.FACELOGIN_ADMIN_TOKEN,
   };
   const envNames: Record<keyof Secrets, string> = {
     masterKey: "FACELOGIN_MASTER_KEY",
@@ -59,6 +63,7 @@ function ensureEnv(): Secrets {
     lshHmacKey: "FACELOGIN_LSH_HMAC_KEY",
     oidcPrivateKey: "FACELOGIN_OIDC_PRIVATE_KEY",
     oidcPairwiseSalt: "FACELOGIN_OIDC_PAIRWISE_SALT",
+    adminToken: "FACELOGIN_ADMIN_TOKEN",
   };
   const generators: Record<keyof Secrets, () => string> = {
     masterKey: randomSecret,
@@ -66,6 +71,7 @@ function ensureEnv(): Secrets {
     lshHmacKey: randomSecret,
     oidcPrivateKey: generatePrivateKeyMaterial,
     oidcPairwiseSalt: randomSecret,
+    adminToken: randomSecret,
   };
 
   const missing = (Object.keys(current) as (keyof Secrets)[]).filter((key) => !current[key]);
@@ -81,6 +87,11 @@ function ensureEnv(): Secrets {
   const existing = existsSync(envPath) ? readFileSync(envPath, "utf8") : "";
   writeFileSync(envPath, mergeEnv(existing, created), { mode: 0o600 });
   console.log(`[facelogin] secretos generados y escritos en .env: ${Object.keys(created).join(", ")}`);
+  if (created.FACELOGIN_ADMIN_TOKEN) {
+    console.log(
+      "[facelogin] FACELOGIN_ADMIN_TOKEN generado. Úsalo en /admin (está en .env; no se imprime aquí).",
+    );
+  }
   return current as Secrets;
 }
 
@@ -120,11 +131,6 @@ async function bootstrap(): Promise<void> {
         "Cualquiera con acceso a la API puede dar de alta una identidad.",
     );
   }
-  if (!process.env.FACELOGIN_ADMIN_TOKEN) {
-    console.warn(
-      "[facelogin] FACELOGIN_ADMIN_TOKEN no está definido: DELETE /api/identities queda CERRADO.",
-    );
-  }
   if (issuer.startsWith("http://") && !/^https?:\/\/(localhost|127\.0\.0\.1)/.test(issuer)) {
     console.warn(
       `[facelogin] FACELOGIN_ISSUER apunta a ${issuer} sin TLS. Los id_token y los códigos viajarían en claro.`,
@@ -132,11 +138,17 @@ async function bootstrap(): Promise<void> {
   }
 
   const engine = new FaceEngine(store, derivedKey, lshSeed, secrets.lshHmacKey);
+  const clients = ManagedClientRegistry.open(
+    resolve(process.cwd(), "data/oidc-clients.json"),
+    process.env,
+    (message) => console.warn(message),
+  );
+  const activity = new ActivityLog(resolve(process.cwd(), "data/admin-activity.json"));
   const provider = new OidcProvider({
     issuer,
     appOrigin,
     keyRing: await loadKeyRing(secrets.oidcPrivateKey),
-    clients: loadClients(process.env, (message) => console.warn(message)),
+    clients,
     pairwiseSalt: secrets.oidcPairwiseSalt,
   });
 
@@ -146,6 +158,9 @@ async function bootstrap(): Promise<void> {
     allowedOrigins: [appOrigin, appOrigin.replace(/^http:/, "https:")],
     appOrigin,
     provider,
+    clients,
+    activity,
+    issuer,
     // Se activa a mano y solo si hay un proxy real delante: si no, un
     // `X-Forwarded-For` inventado bastaría para esquivar el rate limit por IP.
     trustProxy: process.env.FACELOGIN_TRUST_PROXY
@@ -156,6 +171,7 @@ async function bootstrap(): Promise<void> {
   app.listen(port, () => {
     console.log(`facelogin api en http://localhost:${port}`);
     console.log(`facelogin idp: ${issuer}/.well-known/openid-configuration`);
+    console.log(`facelogin admin: ${appOrigin}/admin (${clients.listPublic().length} apps)`);
   });
 }
 
