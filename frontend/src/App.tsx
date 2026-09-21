@@ -18,7 +18,7 @@ export function App() {
 
   // Rutas
   if (route === "/") {
-    return <Landing onEnter={() => navigate("/app")} />;
+    return <Landing onEnter={() => navigate("/app")} onAdmin={() => navigate("/admin")} />;
   }
 
   if (route === "/app") {
@@ -30,5 +30,5 @@ export function App() {
   }
 
   // Fallback
-  return <Landing onEnter={() => navigate("/app")} />;
+  return <Landing onEnter={() => navigate("/app")} onAdmin={() => navigate("/admin")} />;
 }

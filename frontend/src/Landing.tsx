@@ -1,48 +1,68 @@
 /**
- * Landing Page — Marketing y producto
+ * Landing Page — Marketing copy final
  * 
  * Ruta: /
  * 
- * Aquí llegan los visitantes nuevos. Explica qué es facelogin, cómo integrarlo,
- * y los envía a /app para enrolar/entrar.
+ * Copy de Marketing (VERBATIM). No cambiar sin aprobación.
  */
 
 type LandingProps = {
   onEnter: () => void;
+  onAdmin: () => void;
 };
 
-export function Landing({ onEnter }: LandingProps) {
+export function Landing({ onEnter, onAdmin }: LandingProps) {
   return (
     <main className="landing">
+      {/* Nav */}
+      <nav className="landing__nav">
+        <div className="landing__container">
+          <div className="landing__nav-inner">
+            <a href="#hero" className="landing__nav-brand">facelogin</a>
+            <div className="landing__nav-links">
+              <a href="#integrar">Cómo integrar</a>
+              <a href="https://github.com/victoMR/facelogin/tree/main/docs" target="_blank" rel="noopener noreferrer">Docs</a>
+              <button className="btn btn--nav" onClick={onEnter}>Entrar con tu cara</button>
+              <button className="btn btn--nav-quiet" onClick={onAdmin}>Admin</button>
+            </div>
+          </div>
+        </div>
+      </nav>
+
       {/* Hero */}
       <section className="landing__hero" id="hero">
         <div className="landing__container">
-          <p className="landing__eyebrow">facelogin — La foto no viaja</p>
-          <h1 className="landing__title">
-            Autenticación facial
-            <br />
-            sin contraseña.
-          </h1>
+          <p className="landing__eyebrow">Auth open source sin password</p>
+          <h1 className="landing__title">La foto no viaja.</h1>
           <p className="landing__lead">
-            Tu rostro se cifra en el servidor. El descriptor se calcula en el navegador.
-            <br />
-            La foto no sale de tu dispositivo.
+            Agrega "Entrar con tu cara" a tu app. Sin contraseñas que olvidar. Sin mandar fotos a tu servidor.
           </p>
           <div className="landing__actions">
-            <button className="btn btn--primary btn--large" onClick={onEnter}>
-              Entrar con tu cara
-            </button>
-            <a href="#integrar" className="btn btn--quiet btn--large">
-              Ver docs de integración
+            <a href="#integrar" className="btn btn--primary btn--large">
+              Cómo integrar
             </a>
+            <button className="btn btn--quiet btn--large" onClick={onEnter}>
+              Probar la demo
+            </button>
           </div>
         </div>
       </section>
 
-      {/* Historia del producto */}
-      <section className="landing__section" id="historia">
+      {/* Quiénes somos */}
+      <section className="landing__section" id="quienes-somos">
         <div className="landing__container">
-          <h2 className="landing__section-title">¿Qué es facelogin?</h2>
+          <h2 className="landing__section-title">Nacimos del cansancio de las trabas</h2>
+          <p className="landing__body-large">
+            Estamos hartos de elegir entre seguridad de verdad y un diseño que sí funciona. Los passwords
+            se olvidan; los vaults ayudan, pero la vida sería más fácil si tu cara fuera la llave — con
+            privacidad obsesiva y código que cualquiera puede auditar.
+          </p>
+        </div>
+      </section>
+
+      {/* Beneficios */}
+      <section className="landing__section landing__section--alt" id="beneficios">
+        <div className="landing__container">
           <div className="landing__grid">
             <div className="landing__feature">
               <div className="landing__feature-icon" aria-hidden="true">
@@ -53,13 +73,12 @@ export function Landing({ onEnter }: LandingProps) {
                     strokeWidth="1.4"
                     strokeLinejoin="round"
                   />
+                  <path d="M9 10h6M9 14h4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
                 </svg>
               </div>
-              <h3 className="landing__feature-title">La foto no viaja</h3>
+              <h3 className="landing__feature-title">Cero password</h3>
               <p className="landing__feature-desc">
-                El descriptor facial se calcula en tu navegador. El servidor solo guarda
-                plantillas cifradas con AES-256-GCM. Un vault filtrado no entrega fotos ni
-                vectores en claro.
+                Se acabó "¿cuál era mi usuario?"
               </p>
             </div>
 
@@ -79,10 +98,9 @@ export function Landing({ onEnter }: LandingProps) {
                   />
                 </svg>
               </div>
-              <h3 className="landing__feature-title">Liveness activo</h3>
+              <h3 className="landing__feature-title">La foto no viaja</h3>
               <p className="landing__feature-desc">
-                Prueba de vida con gestos (frente, parpadeo, giro) antes de enrolar o entrar.
-                Corre en el cliente; el factor vinculante es la firma del dispositivo o una passkey.
+                El navegador saca un descriptor; tu app no recibe ni guarda caras.
               </p>
             </div>
 
@@ -101,97 +119,74 @@ export function Landing({ onEnter }: LandingProps) {
                   <path d="M9 12h6M12 9v6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
                 </svg>
               </div>
-              <h3 className="landing__feature-title">Listo como IdP OIDC</h3>
+              <h3 className="landing__feature-title">Enchufable</h3>
               <p className="landing__feature-desc">
-                Authorization code + PKCE (S256), firma RS256, sub pairwise por cliente.
-                Integra tu app en minutos. El servicio cliente recibe un id_token firmado,
-                nunca la plantilla facial.
+                OIDC + PKCE. Un botón en tu login actual.
               </p>
             </div>
           </div>
         </div>
       </section>
 
-      {/* Beneficios */}
-      <section className="landing__section landing__section--alt" id="beneficios">
-        <div className="landing__container">
-          <h2 className="landing__section-title">Sin password, sin phishing</h2>
-          <ul className="landing__list">
-            <li>
-              <strong>Sin contraseña.</strong> No hay nada que olvidar, rotar o filtrar.
-            </li>
-            <li>
-              <strong>Multi-condición.</strong> Enrola con lentes y sin ellos; entra te los pongas o no.
-            </li>
-            <li>
-              <strong>Umbral adaptativo.</strong> Se calcula por persona y por tamaño de galería,
-              no es un número mágico único.
-            </li>
-            <li>
-              <strong>Plantillas cifradas.</strong> AES-256-GCM. El vault en reposo no entrega
-              caras ni vectores.
-            </li>
-            <li>
-              <strong>Índice LSH con HMAC.</strong> Las cubetas se firman; no se puede reconstruir
-              el embedding desde la clave de cubeta.
-            </li>
-          </ul>
-        </div>
-      </section>
-
       {/* Cómo integrar */}
       <section className="landing__section" id="integrar">
         <div className="landing__container">
-          <h2 className="landing__section-title">Cómo integrar facelogin con tu app</h2>
+          <h2 className="landing__section-title">Cómo integrar</h2>
           <div className="landing__steps">
             <div className="landing__step">
-              <div className="landing__step-number" aria-hidden="true">
-                1
-              </div>
+              <div className="landing__step-number" aria-hidden="true">1</div>
               <div className="landing__step-content">
-                <h3 className="landing__step-title">Registra tu cliente OIDC</h3>
+                <h3 className="landing__step-title">Corre facelogin</h3>
                 <p className="landing__step-desc">
-                  Añade tu app en <code>FACELOGIN_OIDC_CLIENTS</code> con client_id, redirect_uri
-                  y scopes. Ver <code>backend/config/clients.example.json</code>.
+                  <code>npm install && npm run dev</code> arranca el IdP en <code>localhost:8787</code>.
+                  El frontend queda en <code>localhost:5173/app</code>.
                 </p>
               </div>
             </div>
 
             <div className="landing__step">
-              <div className="landing__step-number" aria-hidden="true">
-                2
-              </div>
+              <div className="landing__step-number" aria-hidden="true">2</div>
               <div className="landing__step-content">
-                <h3 className="landing__step-title">Descubre el emisor</h3>
+                <h3 className="landing__step-title">Registra tu app</h3>
                 <p className="landing__step-desc">
-                  Lee <code>GET /.well-known/openid-configuration</code> y{" "}
-                  <code>/.well-known/jwks.json</code> para obtener endpoints y claves públicas.
+                  Añade tu cliente en <code>FACELOGIN_OIDC_CLIENTS</code> (variable de entorno JSON o
+                  archivo <code>backend/config/clients.example.json</code>). Mínimo: <code>client_id</code>,{" "}
+                  <code>name</code>, <code>redirect_uris</code>.
                 </p>
               </div>
             </div>
 
             <div className="landing__step">
-              <div className="landing__step-number" aria-hidden="true">
-                3
-              </div>
+              <div className="landing__step-number" aria-hidden="true">3</div>
               <div className="landing__step-content">
-                <h3 className="landing__step-title">Inicia el flujo</h3>
+                <h3 className="landing__step-title">Descubre los endpoints</h3>
                 <p className="landing__step-desc">
-                  Envía al usuario a <code>GET /authorize</code> con code_challenge (PKCE S256).
-                  Volverá con un código de un solo uso.
+                  Lee <code>GET /.well-known/openid-configuration</code>. Devuelve <code>authorization_endpoint</code>,{" "}
+                  <code>token_endpoint</code>, <code>jwks_uri</code>.
                 </p>
               </div>
             </div>
 
             <div className="landing__step">
-              <div className="landing__step-number" aria-hidden="true">
-                4
+              <div className="landing__step-number" aria-hidden="true">4</div>
+              <div className="landing__step-content">
+                <h3 className="landing__step-title">Manda al usuario a <code>/authorize</code></h3>
+                <p className="landing__step-desc">
+                  Con <code>response_type=code</code>, tu <code>client_id</code>, <code>redirect_uri</code>,{" "}
+                  <code>state</code>, <code>code_challenge</code> (PKCE S256 obligatorio). El usuario
+                  enrola/entra con su cara y vuelve a ti con <code>?code=...&state=...</code>
+                </p>
               </div>
+            </div>
+
+            <div className="landing__step">
+              <div className="landing__step-number" aria-hidden="true">5</div>
               <div className="landing__step-content">
                 <h3 className="landing__step-title">Canjea el código</h3>
                 <p className="landing__step-desc">
-                  Envía el código y el code_verifier a <code>POST /token</code>. Recibes id_token
-                  (JWT RS256) y access_token. Verifica el id_token con la clave pública del JWKS.
+                  <code>POST /token</code> con el <code>code</code>, <code>code_verifier</code> y{" "}
+                  <code>client_secret</code> (si es confidencial). Recibes <code>id_token</code> (JWT RS256)
+                  + <code>access_token</code>. Verifica el <code>id_token</code> con la clave pública del JWKS.
                 </p>
               </div>
             </div>
@@ -199,7 +194,7 @@ export function Landing({ onEnter }: LandingProps) {
 
           <div className="landing__docs-link">
             <p>
-              <strong>Documentación completa:</strong>{" "}
+              <strong>Guía completa con código:</strong>{" "}
               <a
                 href="https://github.com/victoMR/facelogin/blob/main/docs/integracion-oidc.md"
                 target="_blank"
@@ -212,34 +207,21 @@ export function Landing({ onEnter }: LandingProps) {
         </div>
       </section>
 
-      {/* CTA final */}
-      <section className="landing__section landing__section--cta">
-        <div className="landing__container">
-          <h2 className="landing__section-title">Pruébalo ahora</h2>
-          <p className="landing__lead">
-            Sin registro previo. Enrola tu rostro y entra en segundos.
-          </p>
-          <div className="landing__actions">
-            <button className="btn btn--primary btn--large" onClick={onEnter}>
-              Entrar con tu cara
-            </button>
-            <a
-              href="https://github.com/victoMR/facelogin"
-              className="btn btn--quiet btn--large"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Ver código en GitHub
-            </a>
-          </div>
-        </div>
-      </section>
-
       {/* Footer */}
       <footer className="landing__footer">
         <div className="landing__container">
-          <p className="landing__footer-text">
-            facelogin — Open Source (MIT) · Demo / IdP interno ·{" "}
+          <p className="landing__footer-disclaimer">
+            Demo / IdP en evolución. No es Face ID bancario. Threat model y límites en Docs.
+          </p>
+          <div className="landing__footer-actions">
+            <a
+              href="https://github.com/victoMR/facelogin/blob/main/docs/integracion-oidc.md"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Ver guía completa
+            </a>
+            <button onClick={onEnter}>Probar demo</button>
             <a
               href="https://github.com/victoMR/facelogin"
               target="_blank"
@@ -247,10 +229,16 @@ export function Landing({ onEnter }: LandingProps) {
             >
               GitHub
             </a>
-          </p>
-          <p className="landing__footer-disclaimer">
-            El liveness corre en el cliente. El factor vinculante es la firma del dispositivo o una
-            passkey. No es Face ID bancario.
+          </div>
+          <p className="landing__footer-text">
+            facelogin — Open Source (MIT) ·{" "}
+            <a
+              href="https://github.com/victoMR/facelogin"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              GitHub
+            </a>
           </p>
         </div>
       </footer>

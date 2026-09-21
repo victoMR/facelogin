@@ -1,23 +1,32 @@
 /**
- * Admin Dashboard — Métricas y gestión básica
+ * Admin Dashboard — Copy final de Marketing
  * 
  * Rutas:
  * - /admin: login con admin token
  * - /admin/dashboard: métricas del sistema
  * 
- * Protegido con FACELOGIN_ADMIN_TOKEN (no frontend bundle).
- * Session storage para el token de admin tras validación.
+ * Copy VERBATIM de Marketing. No FAR/FPIR/LSH en UI.
  */
 
 import { useState, useEffect } from "react";
 
 type AdminMetrics = {
   enrolledIdentities: number;
-  recentActivity?: {
-    identify: number;
-    enroll: number;
-  };
+  todayLogins?: number;
+  weekLogins?: number;
   oidcClients?: number;
+  lastAccess?: string;
+  identities?: Array<{
+    name: string;
+    enrolledAt: string;
+    lastSeen: string;
+    status: string;
+  }>;
+  apps?: Array<{
+    name: string;
+    lastUsed: string;
+    logins: number;
+  }>;
 };
 
 type AdminProps = {
@@ -75,7 +84,7 @@ export function Admin({ onExit }: AdminProps) {
       
       if (!response.ok) {
         const body = await response.json().catch(() => ({}));
-        throw new Error(body.error || "No autorizado.");
+        throw new Error(body.error || "No tienes acceso de administrador.");
       }
       
       const data = await response.json();
@@ -126,11 +135,10 @@ export function Admin({ onExit }: AdminProps) {
               <circle cx="12" cy="11" r="1.5" fill="currentColor" />
             </svg>
           </span>
-          <p className="eyebrow">Administración</p>
-          <h1 className="display">Panel de control</h1>
+          <p className="eyebrow">Panel facelogin</p>
+          <h1 className="display">Solo administradores</h1>
           <p className="body">
-            Pega tu token de administrador para ver métricas del sistema.
-            El token se guarda solo en sessionStorage, no en el bundle.
+            Pega tu token de administrador para ver el uso del sistema.
           </p>
           <form className="stack" onSubmit={handleLogin}>
             <label className="field">
@@ -163,80 +171,127 @@ export function Admin({ onExit }: AdminProps) {
   }
 
   return (
-    <main className="app">
-      <Screen id="admin-dashboard" onBack={onExit}>
-        <span className="glyph glyph--ok" aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none">
-            <rect
-              x="3"
-              y="3"
-              width="18"
-              height="18"
-              rx="2"
-              stroke="currentColor"
-              strokeWidth="1.4"
-            />
-            <path d="M3 9h18M9 3v18" stroke="currentColor" strokeWidth="1.4" />
-          </svg>
-        </span>
-        <p className="eyebrow">Administración</p>
-        <h1 className="display">Panel de control</h1>
-        
+    <main className="app app--admin">
+      <div className="admin">
+        <header className="admin__header">
+          <div className="admin__header-inner">
+            <div>
+              <p className="eyebrow">Panel facelogin</p>
+              <h1 className="admin__title">Uso de facelogin</h1>
+              <p className="admin__subtitle">Quién entra y qué apps lo usan</p>
+            </div>
+            <div className="admin__header-actions">
+              <button className="btn" disabled>Invitar</button>
+              <button className="btn btn--quiet" onClick={handleLogout}>
+                Cerrar sesión
+              </button>
+            </div>
+          </div>
+        </header>
+
         {loading && <p className="body">Cargando métricas...</p>}
         
         {metrics && !loading && (
-          <div className="admin-metrics">
-            <div className="metric-card">
-              <div className="metric-card__label">Identidades enroladas</div>
-              <div className="metric-card__value">{metrics.enrolledIdentities}</div>
+          <div className="admin__content">
+            {/* Métricas cards */}
+            <div className="admin-metrics">
+              <div className="metric-card">
+                <div className="metric-card__label">Personas registradas</div>
+                <div className="metric-card__value">{metrics.enrolledIdentities}</div>
+              </div>
+
+              <div className="metric-card">
+                <div className="metric-card__label">Entradas hoy</div>
+                <div className="metric-card__value">{metrics.todayLogins ?? 0}</div>
+              </div>
+
+              <div className="metric-card">
+                <div className="metric-card__label">Entradas esta semana</div>
+                <div className="metric-card__value">{metrics.weekLogins ?? 0}</div>
+              </div>
+
+              <div className="metric-card">
+                <div className="metric-card__label">Apps conectadas</div>
+                <div className="metric-card__value">{metrics.oidcClients ?? 0}</div>
+              </div>
+
+              {metrics.lastAccess && (
+                <div className="metric-card metric-card--wide">
+                  <div className="metric-card__label">Último acceso</div>
+                  <div className="metric-card__value metric-card__value--small">
+                    {metrics.lastAccess}
+                  </div>
+                </div>
+              )}
             </div>
 
-            {metrics.recentActivity && (
-              <>
-                <div className="metric-card">
-                  <div className="metric-card__label">Identificaciones recientes</div>
-                  <div className="metric-card__value">{metrics.recentActivity.identify}</div>
-                  <div className="metric-card__hint">Últimos 60 segundos</div>
-                </div>
+            {/* Tabla Personas */}
+            <div className="admin__table-section">
+              <h2 className="admin__table-title">Personas</h2>
+              {(!metrics.identities || metrics.identities.length === 0) ? (
+                <p className="admin__empty">Todavía no hay nadie registrado.</p>
+              ) : (
+                <table className="admin__table">
+                  <thead>
+                    <tr>
+                      <th>Nombre</th>
+                      <th>Registrado</th>
+                      <th>Última entrada</th>
+                      <th>Estado</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {metrics.identities.map((identity, i) => (
+                      <tr key={i}>
+                        <td>{identity.name}</td>
+                        <td>{identity.enrolledAt}</td>
+                        <td>{identity.lastSeen}</td>
+                        <td>{identity.status}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
 
-                <div className="metric-card">
-                  <div className="metric-card__label">Enrolamientos recientes</div>
-                  <div className="metric-card__value">{metrics.recentActivity.enroll}</div>
-                  <div className="metric-card__hint">Últimos 60 segundos</div>
-                </div>
-              </>
-            )}
-
-            {metrics.oidcClients !== undefined && (
-              <div className="metric-card">
-                <div className="metric-card__label">Clientes OIDC configurados</div>
-                <div className="metric-card__value">{metrics.oidcClients}</div>
-              </div>
-            )}
+            {/* Tabla Apps */}
+            <div className="admin__table-section">
+              <h2 className="admin__table-title">Apps</h2>
+              {(!metrics.apps || metrics.apps.length === 0) ? (
+                <p className="admin__empty">
+                  Ninguna app conectada aún. Sigue{" "}
+                  <a href="/#integrar">Cómo integrar</a>.
+                </p>
+              ) : (
+                <table className="admin__table">
+                  <thead>
+                    <tr>
+                      <th>App</th>
+                      <th>Último uso</th>
+                      <th>Entradas</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {metrics.apps.map((app, i) => (
+                      <tr key={i}>
+                        <td>{app.name}</td>
+                        <td>{app.lastUsed}</td>
+                        <td>{app.logins}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
           </div>
         )}
-
-        <div className="stack">
-          <button
-            className="btn"
-            onClick={() => {
-              if (token) void loadMetrics(token);
-            }}
-            disabled={loading}
-          >
-            Actualizar métricas
-          </button>
-          <button className="btn btn--quiet" onClick={handleLogout}>
-            Cerrar sesión de admin
-          </button>
-        </div>
 
         {error && (
           <p className="toast" role="alert">
             {error}
           </p>
         )}
-      </Screen>
+      </div>
     </main>
   );
 }
