@@ -36,21 +36,23 @@ type AdminProps = {
 function Screen({ id, children, onBack }: { id: string; children: React.ReactNode; onBack?: () => void }) {
   return (
     <section className="screen screen--center" key={id}>
-      {onBack && (
-        <button className="btn btn--chip screen__back" onClick={onBack} aria-label="Atrás">
-          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" width="18" height="18">
-            <path
-              d="M15 5 8 12l7 7"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-          <span>Atrás</span>
-        </button>
-      )}
-      <div className="screen__inner">{children}</div>
+      <div className="screen__inner">
+        {onBack && (
+          <button className="btn btn--chip screen__back" onClick={onBack} aria-label="Atrás">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" width="18" height="18">
+              <path
+                d="M15 5 8 12l7 7"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+            <span>Atrás</span>
+          </button>
+        )}
+        {children}
+      </div>
     </section>
   );
 }
