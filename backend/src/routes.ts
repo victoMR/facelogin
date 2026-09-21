@@ -679,6 +679,18 @@ export function createRouter(
           }
         }
       }
+      // Acaba de entrar con passkey o aparato: vincular este sin un segundo diálogo FIDO.
+      if (
+        !stepped &&
+        sessionIsFresh(session) &&
+        (session.amr.includes("passkey") || session.amr.includes("hwk"))
+      ) {
+        stepped = true;
+      }
+      // Primera vinculación: cara fresca y aún no hay passkeys ni aparatos (alta OIDC).
+      if (!stepped && sessionIsFresh(session) && knownDevices.length === 0 && knownPasskeys.length === 0) {
+        stepped = true;
+      }
       if (!stepped) {
         res.status(403).json({
           error: "Confirma con un aparato de confianza o una passkey antes de guardar este.",

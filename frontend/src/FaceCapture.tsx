@@ -1353,8 +1353,11 @@ export function FaceCapture({
     if (flow === "login") {
       if (status === 403) {
         return {
-          title: "Falta una passkey",
-          detail: raw,
+          title: "Este aparato aún no es de confianza",
+          detail:
+            "Si el navegador muestra un código FIDO:/… no lo copies: es un QR de passkey. " +
+            "Ciérralo y, en este mismo celular, crea o usa una passkey (Face ID / huella / gestor de contraseñas). " +
+            "La app Cámara normal no sirve para ese código.",
           raw,
           retryPhase: null,
           retryLabel: "Reintentar",

@@ -84,7 +84,8 @@ export async function registrationOptions(
       residentKey: "required",
       requireResidentKey: true,
       userVerification: "required",
-      authenticatorAttachment: "platform",
+      // Sin forzar "platform": así puede sincronizarse (iCloud/Google) y usarse
+      // en el celular sin el calvario del QR FIDO:/ hacia la laptop.
     },
   });
   return { ticket: putTicket(options.challenge, user.id), options };

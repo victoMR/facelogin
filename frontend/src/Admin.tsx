@@ -17,7 +17,7 @@ import { deviceProof, ensureDevice, isDeviceTrustedLocally, markDeviceTrustedLoc
 import { enrollChallenges, loginChallenges, GLASSES_CONDITIONS, SINGLE_CONDITION, trustedChallenges } from "./liveness";
 import type { EnrollCondition } from "./liveness";
 import { meanShape, SHAPE_DIM } from "./mesh";
-import { authenticatePasskey, passkeySupported } from "./passkey";
+import { authenticatePasskey, passkeySupported, registerPasskey } from "./passkey";
 
 const FaceCapture = lazy(() =>
   import("./FaceCapture").then((module) => ({ default: module.FaceCapture })),
@@ -362,8 +362,7 @@ export function Admin({ onExit }: AdminProps) {
     if (!pendingTrust) return;
     try {
       const device = await deviceProof();
-      const passkey = passkeySupported() ? await authenticatePasskey() : undefined;
-      await trustDevice(pendingTrust.token, device, passkey);
+      await trustDevice(pendingTrust.token, device);
       markDeviceTrustedLocally();
       sessionStorage.setItem(SESSION_KEY, pendingTrust.token);
       sessionStorage.removeItem(BOOTSTRAP_KEY);
@@ -376,6 +375,18 @@ export function Admin({ onExit }: AdminProps) {
       }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "No se pudo confiar en este aparato.");
+    }
+  }
+
+  async function handleAddPasskey() {
+    if (!authToken) return;
+    setError("");
+    try {
+      await registerPasskey(authToken);
+      setError("");
+      await loadMetrics(authToken);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "No se pudo guardar la passkey.");
     }
   }
 
@@ -710,7 +721,7 @@ export function Admin({ onExit }: AdminProps) {
           <h1 className="display">Confía en este aparato</h1>
           <p className="body">
             Hola, {pendingTrust.identity.displayName}. Confirma para entrar al panel sin pedir
-            passkey cada vez.
+            passkey cada vez en este aparato.
           </p>
           <div className="stack">
             <button className="btn btn--primary" type="button" onClick={() => void confirmTrust()}>
@@ -749,6 +760,11 @@ export function Admin({ onExit }: AdminProps) {
               </p>
             </div>
             <div className="admin__header-actions">
+              {passkeySupported() && authToken && (
+                <button className="btn btn--quiet" type="button" onClick={() => void handleAddPasskey()}>
+                  Añadir passkey
+                </button>
+              )}
               <button className="btn btn--quiet" type="button" onClick={() => void loadMetrics(authToken)}>
                 Actualizar
               </button>
@@ -927,6 +943,8 @@ export function Admin({ onExit }: AdminProps) {
                         <th>Nombre</th>
                         <th>Registrado</th>
                         <th>Última entrada</th>
+                        <th>Aparatos</th>
+                        <th>Passkeys</th>
                         <th>Rol</th>
                       </tr>
                     </thead>
@@ -936,6 +954,8 @@ export function Admin({ onExit }: AdminProps) {
                           <td>{person.name}</td>
                           <td>{formatWhen(person.enrolledAt)}</td>
                           <td>{formatWhen(person.lastSeen)}</td>
+                          <td>{person.devices}</td>
+                          <td>{person.passkeys}</td>
                           <td>{person.isOperator ? "Operador" : person.status}</td>
                         </tr>
                       ))}

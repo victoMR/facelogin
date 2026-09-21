@@ -247,6 +247,16 @@ export function FaceApp({ onExit }: FaceAppProps) {
     setMode("setup");
   }
 
+  async function bindThisDevice(token: string) {
+    try {
+      const device = await deviceProof();
+      await trustDevice(token, device);
+      markDeviceTrustedLocally();
+    } catch {
+      /* no bloquear el login si el bind falla */
+    }
+  }
+
   async function identifyWithDevice(captures: Capture[]) {
     let proof;
     try {
@@ -282,8 +292,8 @@ export function FaceApp({ onExit }: FaceAppProps) {
     if (!pendingTrust) return;
     try {
       const device = await deviceProof();
-      const passkey = passkeySupported() ? await authenticatePasskey() : undefined;
-      await trustDevice(pendingTrust.token, device, passkey);
+      // Sesión fresca con passkey/hwk ya basta en el servidor; no forzar otro FIDO.
+      await trustDevice(pendingTrust.token, device);
       markDeviceTrustedLocally();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "No se pudo confiar en este aparato.");
@@ -419,6 +429,7 @@ export function FaceApp({ onExit }: FaceAppProps) {
               // Alta vía app registrada: identificar y devolver al callback de esa app.
               if (oidcRegistering && OIDC_REQUEST_ID) {
                 const { token } = await identifyWithDevice(captures);
+                await bindThisDevice(token);
                 const { redirect } = await oidcApprove(OIDC_REQUEST_ID, token);
                 window.location.replace(redirect);
                 await new Promise(() => undefined);
@@ -449,6 +460,7 @@ export function FaceApp({ onExit }: FaceAppProps) {
             onCancel={() => void cancelOidc()}
             onComplete={async (captures) => {
               const { token } = await identifyWithDevice(captures);
+              await bindThisDevice(token);
               const { redirect } = await oidcApprove(OIDC_REQUEST_ID, token);
               window.location.replace(redirect);
               await new Promise(() => undefined);
