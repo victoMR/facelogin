@@ -695,7 +695,14 @@ export function FaceCapture({
         viewRef.current.reset();
         const video = videoRef.current;
         if (!video) return;
-        video.srcObject = stream;
+        // Solo pistas de vídeo en el <video>: con audio+vídeo juntos Safari/Chrome
+        // a veces dejan el preview negro; el mic se reutiliza desde streamRef.
+        video.srcObject = new MediaStream(stream.getVideoTracks());
+        video.disablePictureInPicture = true;
+        if ("disableRemotePlayback" in video) {
+          (video as HTMLVideoElement & { disableRemotePlayback: boolean }).disableRemotePlayback =
+            true;
+        }
         if (video.readyState < 2) {
           await new Promise<void>((resolve) => {
             video.onloadedmetadata = () => resolve();
@@ -1621,7 +1628,14 @@ export function FaceCapture({
     <section className="capture" aria-label={title}>
       <div className="capture__stage" ref={stageRef}>
         <div className="capture__mirror">
-          <video ref={videoRef} playsInline muted />
+          <video
+            ref={videoRef}
+            playsInline
+            muted
+            autoPlay
+            disablePictureInPicture
+            controlsList="nodownload nofullscreen noremoteplayback"
+          />
           <canvas ref={canvasRef} />
         </div>
         <ProgressRing

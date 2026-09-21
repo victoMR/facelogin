@@ -102,13 +102,16 @@ export async function openCamera(
       return await navigator.mediaDevices.getUserMedia(constraints);
     } catch (error) {
       last = error;
-      // `NotAllowedError` es un "no" del usuario, no una restricción imposible:
-      // reintentar con constraints más flojas solo dispara otro diálogo.
-      if (error instanceof DOMException && error.name === "NotAllowedError") throw error;
+      // Si pedimos mic+cámara y el usuario niega (o el diálogo falla),
+      // caemos a solo vídeo en vez de quedarnos sin preview.
+      if (error instanceof DOMException && error.name === "NotAllowedError") {
+        if (wantAudio) break;
+        throw error;
+      }
     }
   }
 
-  // Micrófono ausente o ocupado: no bloquear el reconocimiento facial.
+  // Micrófono ausente, ocupado o denegado: no bloquear el reconocimiento facial.
   if (wantAudio) {
     for (const constraints of constraintsFor(profile, { audio: false })) {
       try {
