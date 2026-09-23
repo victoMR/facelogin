@@ -703,7 +703,7 @@ export function createRouter(
       if (
         !stepped &&
         sessionIsFresh(session) &&
-        (session.amr.includes("passkey") || session.amr.includes("hwk"))
+        (session.amr?.includes("passkey") || session.amr?.includes("hwk"))
       ) {
         stepped = true;
       }
