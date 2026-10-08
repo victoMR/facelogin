@@ -23,10 +23,28 @@ export function isMobile(): boolean {
 export type OpenCameraOptions = {
   /**
    * Pedir micrófono en el mismo `getUserMedia` que la cámara (un solo diálogo,
-   * como Meet/Zoom). Si el mic falla, se cae a solo vídeo.
+   * como Meet/Zoom). Si el mic está denegado o falla, se cae a solo vídeo.
    */
   audio?: boolean;
 };
+
+type PermissionStateName = "granted" | "denied" | "prompt" | "unknown";
+
+/** Estado de un permiso sin disparar el diálogo. */
+export async function queryMediaPermission(
+  name: "camera" | "microphone",
+): Promise<PermissionStateName> {
+  try {
+    if (!navigator.permissions?.query) return "unknown";
+    const status = await navigator.permissions.query({ name } as PermissionDescriptor);
+    if (status.state === "granted" || status.state === "denied" || status.state === "prompt") {
+      return status.state;
+    }
+    return "unknown";
+  } catch {
+    return "unknown";
+  }
+}
 
 /**
  * Resolución adaptativa.
@@ -83,6 +101,24 @@ function testStream(): MediaStream | null {
   return provided instanceof MediaStream ? provided : null;
 }
 
+async function getUserMediaLadder(
+  profile: DeviceProfile,
+  audio: boolean,
+): Promise<MediaStream> {
+  let last: unknown;
+  for (const constraints of constraintsFor(profile, { audio })) {
+    try {
+      return await navigator.mediaDevices.getUserMedia(constraints);
+    } catch (error) {
+      last = error;
+      // `NotAllowedError` con el mismo paquete audio/vídeo: no reintentar el
+      // mismo diálogo; el caller decide si cae a solo vídeo.
+      if (error instanceof DOMException && error.name === "NotAllowedError") throw error;
+    }
+  }
+  throw last instanceof Error ? last : new Error("No se pudo abrir la cámara.");
+}
+
 export async function openCamera(
   profile: DeviceProfile,
   options: OpenCameraOptions = {},
@@ -94,36 +130,28 @@ export async function openCamera(
     throw new Error(insecureContextMessage());
   }
 
-  const wantAudio = options.audio === true;
-  let last: unknown;
-
-  for (const constraints of constraintsFor(profile, { audio: wantAudio })) {
-    try {
-      return await navigator.mediaDevices.getUserMedia(constraints);
-    } catch (error) {
-      last = error;
-      // Si pedimos mic+cámara y el usuario niega (o el diálogo falla),
-      // caemos a solo vídeo en vez de quedarnos sin preview.
-      if (error instanceof DOMException && error.name === "NotAllowedError") {
-        if (wantAudio) break;
-        throw error;
-      }
-    }
-  }
-
-  // Micrófono ausente, ocupado o denegado: no bloquear el reconocimiento facial.
+  // Si el micrófono ya está bloqueado en el sitio, pedir audio+vídeo hace que
+  // Chrome/Brave nieguen TODO sin mostrar diálogo. En ese caso solo pedimos cámara.
+  let wantAudio = options.audio === true;
   if (wantAudio) {
-    for (const constraints of constraintsFor(profile, { audio: false })) {
-      try {
-        return await navigator.mediaDevices.getUserMedia(constraints);
-      } catch (error) {
-        last = error;
-        if (error instanceof DOMException && error.name === "NotAllowedError") throw error;
-      }
-    }
+    const mic = await queryMediaPermission("microphone");
+    if (mic === "denied") wantAudio = false;
   }
 
-  throw last instanceof Error ? last : new Error("No se pudo abrir la cámara.");
+  try {
+    return await getUserMediaLadder(profile, wantAudio);
+  } catch (error) {
+    // Pedimos mic+cámara y el usuario (o Brave) bloqueó: aún podemos reconocer
+    // con solo vídeo. Un NotAllowedError de solo cámara sí es definitivo.
+    if (
+      wantAudio &&
+      error instanceof DOMException &&
+      error.name === "NotAllowedError"
+    ) {
+      return getUserMediaLadder(profile, false);
+    }
+    throw error;
+  }
 }
 
 /**
@@ -147,8 +175,8 @@ export function cameraErrorMessage(error: unknown): string {
   const name = error instanceof DOMException ? error.name : "";
   if (name === "NotAllowedError" || name === "PermissionDeniedError") {
     return isMobile()
-      ? "Bloqueaste la cámara o el micrófono para esta página. Toca el candado en la barra de direcciones y permítelos."
-      : "Chrome o macOS bloquearon la cámara o el micrófono. Permítelos en la barra de direcciones y en Ajustes → Privacidad.";
+      ? "La cámara está bloqueada para este sitio (a veces el navegador no vuelve a preguntar). En Chrome o Brave: menú ⋮ → Información del sitio / Permisos → Cámara → Permitir. También revisa Ajustes de Android → Apps → Chrome/Brave → Permisos → Cámara."
+      : "La cámara o el micrófono están bloqueados para este sitio. En la barra de direcciones toca el candado → Permisos de sitio → Cámara (y Micrófono) → Permitir, y recarga.";
   }
   if (name === "NotFoundError" || name === "DevicesNotFoundError") {
     return "No hay cámara disponible en este dispositivo, o está en uso por otra app.";

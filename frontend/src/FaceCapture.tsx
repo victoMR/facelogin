@@ -1,5 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { cameraErrorMessage, lockVideoInline, openCamera, streamResolution } from "./camera";
+import {
+  cameraErrorMessage,
+  isMobile,
+  lockVideoInline,
+  openCamera,
+  queryMediaPermission,
+  streamResolution,
+} from "./camera";
 import {
   computeBackend,
   deviceProfile,
@@ -536,6 +543,13 @@ export function FaceCapture({
    * pasa, en vez de dejar un rectángulo negro eterno se pide el toque explícito.
    */
   const [needsTap, setNeedsTap] = useState(false);
+  /**
+   * En móvil, `getUserMedia` desde un useEffect a veces niega sin diálogo
+   * (se perdió el gesto del botón «Verificar»). Pedimos un toque explícito.
+   */
+  const [needsCameraGesture, setNeedsCameraGesture] = useState(() => isMobile());
+  /** Tras el toque en móvil (o siempre en escritorio) ya podemos abrir la cámara. */
+  const [cameraArmed, setCameraArmed] = useState(() => !isMobile());
   const [voiceGate, setVoiceGate] = useState<VoiceGate | null>(null);
   const [stats, setStats] = useState<CaptureStats>(EMPTY_STATS);
   /** Espejo de `insets` para el bucle: leerlo del estado remontaría el efecto en
@@ -661,33 +675,31 @@ export function FaceCapture({
   }
 
   useEffect(() => {
+    if (!cameraArmed) return;
+
     let cancelled = false;
     let unlockPip: (() => void) | undefined;
 
     async function start() {
       try {
         errorRef.current("");
+        setNeedsCameraGesture(false);
         setModels("loading");
 
         /**
          * Cámara (+ micrófono si el navegador puede oír) **en paralelo** con
-         * los modelos — un solo diálogo de permisos, como Meet/Zoom.
-         *
-         * Los pesos ya se están precargando desde que se montó la app, así que
-         * lo normal es que `loadModels()` resuelva enseguida; pero encadenarlo
-         * detrás de `getUserMedia` sumaría los dos tiempos en el caso frío. En
-         * paralelo, el tiempo hasta el primer frame es el máximo de los dos, no
-         * la suma. El perfil se lee después de que los modelos resuelvan, que es
-         * cuando ya está calibrado por el backend elegido.
+         * los modelos. Si el mic ya está bloqueado, solo pedimos vídeo: si no,
+         * Chrome/Brave niegan todo sin mostrar el diálogo de la cámara.
          */
         const modelsPromise = loadModels().catch(() => {
           throw new ModelError(
             "No se pudieron cargar los modelos faciales. Revisa tu conexión y reintenta.",
           );
         });
-        // Login y enroll pueden pedir el captcha de voz: pedimos el mic ahora
-        // para no abrir un segundo diálogo a mitad de los gestos.
-        const stream = await openCamera(deviceProfile(), { audio: speechSupported() });
+        const micState = speechSupported() ? await queryMediaPermission("microphone") : "denied";
+        const stream = await openCamera(deviceProfile(), {
+          audio: speechSupported() && micState !== "denied",
+        });
         if (cancelled) {
           stream.getTracks().forEach((track) => track.stop());
           return;
@@ -712,8 +724,6 @@ export function FaceCapture({
           setNeedsTap(false);
         } catch (error) {
           if (error instanceof DOMException && error.name === "AbortError") return;
-          // Autoplay bloqueado: no es un fallo de cámara, es una política del
-          // navegador que se resuelve con un toque.
           if (error instanceof DOMException && error.name === "NotAllowedError") {
             setNeedsTap(true);
           } else {
@@ -730,8 +740,8 @@ export function FaceCapture({
         if (cancelled) return;
         setModels("error");
         setLive(false);
+        setNeedsCameraGesture(false);
         setFailure(error instanceof ModelError ? "models" : "camera");
-        // Los textos de error de cámara viven en `camera.ts`; aquí solo se muestran.
         errorRef.current(cameraErrorMessage(error));
       }
     }
@@ -744,7 +754,7 @@ export function FaceCapture({
       streamRef.current = null;
       if (videoRef.current) videoRef.current.srcObject = null;
     };
-  }, [challenges, attempt]);
+  }, [challenges, attempt, cameraArmed]);
 
   useEffect(() => {
     if (!live || models !== "ready" || busy || handoff || needsTap || recovery) return;
@@ -1525,6 +1535,11 @@ export function FaceCapture({
               onClick={() => {
                 onError("");
                 setModels("idle");
+                if (failure === "camera" && isMobile()) {
+                  setCameraArmed(false);
+                  setNeedsCameraGesture(true);
+                  return;
+                }
                 setAttempt((value) => value + 1);
               }}
             >
@@ -1782,20 +1797,42 @@ export function FaceCapture({
         )}
       </div>
 
-      {needsTap && (
+      {needsCameraGesture && (
+        <div className="overlay" role="dialog" aria-modal="true" aria-labelledby="cam-gesture-title">
+          <div className="overlay__card">
+            <h2 className="title" id="cam-gesture-title">
+              Permite la cámara
+            </h2>
+            <p className="body">
+              Toca el botón para que el navegador te pida permiso. Si no aparece el diálogo, la
+              cámara está bloqueada para este sitio: menú ⋮ → Permisos → Cámara → Permitir.
+            </p>
+            <button
+              className="btn btn--primary"
+              autoFocus
+              onClick={() => {
+                unlockCue();
+                setNeedsCameraGesture(false);
+                setCameraArmed(true);
+                setAttempt((value) => value + 1);
+              }}
+            >
+              Permitir cámara
+            </button>
+            <button className="btn btn--quiet" onClick={onCancel}>
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {needsTap && !needsCameraGesture && (
         <div className="overlay" role="dialog" aria-modal="true" aria-labelledby="tap-title">
           <div className="overlay__card">
             <h2 className="title" id="tap-title">
               Toca para empezar
             </h2>
-            {/* iOS y Android no dejan arrancar un vídeo fuera del gesto del
-                usuario, y `await getUserMedia()` rompe la cadena del gesto que
-                trajo al usuario hasta aquí. Un botón lo resuelve; un rectángulo
-                negro sin explicación, no. */}
-            <p className="body">
-              Tu navegador necesita un toque para encender la cámara
-              {speechSupported() ? " y el micrófono" : ""}.
-            </p>
+            <p className="body">Tu navegador necesita un toque para encender la vista de la cámara.</p>
             <button
               className="btn btn--primary"
               autoFocus
