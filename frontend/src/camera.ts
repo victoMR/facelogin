@@ -175,8 +175,8 @@ export function cameraErrorMessage(error: unknown): string {
   const name = error instanceof DOMException ? error.name : "";
   if (name === "NotAllowedError" || name === "PermissionDeniedError") {
     return isMobile()
-      ? "La cámara está bloqueada para este sitio (a veces el navegador no vuelve a preguntar). En Chrome o Brave: menú ⋮ → Información del sitio / Permisos → Cámara → Permitir. También revisa Ajustes de Android → Apps → Chrome/Brave → Permisos → Cámara."
-      : "La cámara o el micrófono están bloqueados para este sitio. En la barra de direcciones toca el candado → Permisos de sitio → Cámara (y Micrófono) → Permitir, y recarga.";
+      ? "Chrome no dejó abrir la cámara. Menú ⋮ → Información del sitio → Permisos → Cámara → Permitir, y también Ajustes de Android → Apps → Chrome → Permisos → Cámara."
+      : "Chrome no dejó abrir la cámara. Candado de la barra → Permisos del sitio → Cámara → Permitir, y recarga.";
   }
   if (name === "NotFoundError" || name === "DevicesNotFoundError") {
     return "No hay cámara disponible en este dispositivo, o está en uso por otra app.";

@@ -4,7 +4,6 @@ import {
   isMobile,
   lockVideoInline,
   openCamera,
-  queryMediaPermission,
   streamResolution,
 } from "./camera";
 import {
@@ -696,10 +695,11 @@ export function FaceCapture({
             "No se pudieron cargar los modelos faciales. Revisa tu conexión y reintenta.",
           );
         });
-        const micState = speechSupported() ? await queryMediaPermission("microphone") : "denied";
-        const stream = await openCamera(deviceProfile(), {
-          audio: speechSupported() && micState !== "denied",
-        });
+        // Solo vídeo. En Android/Brave, si el micrófono está denegado, pedir
+        // audio+vídeo juntos falla con NotAllowedError aunque la cámara esté
+        // permitida, y el diálogo ni siquiera aparece. El mic se pide después,
+        // solo si hace falta el captcha de voz.
+        const stream = await openCamera(deviceProfile());
         if (cancelled) {
           stream.getTracks().forEach((track) => track.stop());
           return;
